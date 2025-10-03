@@ -14,7 +14,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true })); // Use extended: true for parsing URL-encoded bodies with complex objects
 
 app.use(cors({
-    origin: "http://localhost:3000", // yoki frontend domeni
+    origin: "https://unversels.vercel.app/", // yoki frontend domeni
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // DELETE ni qo‘sh
     allowedHeaders: ["Content-Type", "Authorization"]
 }));
