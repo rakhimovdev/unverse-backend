@@ -13,10 +13,24 @@ const ScoreL = require("./routes/Scorel")
 app.use(express.json());
 app.use(express.urlencoded({ extended: true })); // Use extended: true for parsing URL-encoded bodies with complex objects
 
+const allowedOrigins = [
+    // "https://unversels.vercel.app",
+    "http://localhost:3000"
+];
+
 app.use(cors({
-    origin: "https://unversels.vercel.app", // yoki frontend domeni
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // DELETE ni qo‘sh
-    allowedHeaders: ["Content-Type", "Authorization"]
+    origin: function (origin, callback) {
+        // Agar origin yo‘q bo‘lsa (masalan, Postman), ruxsat beramiz
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        } else {
+            return callback(new Error("Not allowed by CORS"));
+        }
+    },
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true
 }));
 
 const url = "mongodb+srv://rahimovdev1:universe@cluster0.gwybjlk.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
