@@ -13,7 +13,12 @@ const ScoreL = require("./routes/Scorel")
 app.use(express.json());
 app.use(express.urlencoded({ extended: true })); // Use extended: true for parsing URL-encoded bodies with complex objects
 
-app.use(cors());
+app.use(cors({
+    origin: "http://localhost:3000", // yoki frontend domeni
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // DELETE ni qo‘sh
+    allowedHeaders: ["Content-Type", "Authorization"]
+}));
+
 const url = "mongodb+srv://rahimovdev1:universe@cluster0.gwybjlk.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 mongoose.connect(url)
     .then(() => {

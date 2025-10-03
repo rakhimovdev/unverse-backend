@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs'); // bcrypt emas, bcryptjs ishlatgan yaxshi
 const jwt = require('jsonwebtoken');
 
 const User = require('../models/User');
-const Test = require('../models/Test');
+const Test = require('../models/Testl');
 const Score = require('../models/Score');
 
 // =====================

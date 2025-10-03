@@ -1,44 +1,36 @@
 const mongoose = require("mongoose");
 
-const QuestionSchema = new mongoose.Schema({
-    value: {
-        type: String,
-        required: false,
+const QuestionSchema = new mongoose.Schema(
+    {
+        question: { type: String, trim: true },
+        value: { type: String, trim: true },
+        type: { type: String, enum: ["text", "select", "yn"], default: "text" },
+        options: { type: [String], default: [] },
+
+        // 🔹 joylashuv ma'lumotlari
+        top: { type: Number, default: 0 },
+        left: { type: Number, default: 0 },
+        width: { type: Number, default: 120 },
     },
-    type: {
-        type: String,
-        enum: ["text", "select"],
-        default: "text",
-    },
-});
+    { _id: false }
+);
+
 
 const ListeningSchema = new mongoose.Schema(
     {
-        title: {
-            type: String,
-            required: true
-        },
-        audio: {
-            type: Buffer,
-            required: true
-        },       // 🔹 audio fayl
-        contentType: {
-            type: String,
-            required: true
-        }, // 🔹 MIME type (mp3, wav va h.k.)
-        transcript: {
-            type: String,
-            default: ""
-        }, // 🔹 script (agar kerak bo‘lsa)
-        questions: {
-            type: [QuestionSchema],
-            default: []
-        }, // 🔹 savollar
-        student: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: "User",
-            required: false,
-        },
+        title: { type: String, required: true, trim: true },
+
+        // 🔹 Audio
+        audio: { type: Buffer },
+        contentType: { type: String },
+
+        // 🔹 Rasm
+        image: { type: Buffer },
+        imageType: { type: String },
+
+        transcript: { type: String, default: "", trim: true },
+        questions: { type: [QuestionSchema], default: [] },
+        student: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     },
     { timestamps: true }
 );
