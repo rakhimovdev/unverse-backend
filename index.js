@@ -1,30 +1,29 @@
 const express = require("express");
 const app = express();
-const Student = require("./routes/Student");
-const User = require("./routes/User")
-const Test = require("./routes/Test");
 const mongoose = require("mongoose");
 const cors = require("cors");
+
+// Routers
+const Student = require("./routes/Student");
+const User = require("./routes/User");
+const Test = require("./routes/Test");
 const Score = require("./routes/Score");
 const Testl = require("./routes/Testl");
-const ScoreL = require("./routes/Scorel")
+const ScoreL = require("./routes/Scorel");
 
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: true })); // Use extended: true for parsing URL-encoded bodies with complex objects
-
+// 1. Avval CORS
 const allowedOrigins = [
-    // "https://unversels.vercel.app",
+    "https://unversels.vercel.app",
     "http://localhost:3000"
 ];
 
 app.use(cors({
     origin: function (origin, callback) {
-        // Agar origin yo‘q bo‘lsa (masalan, Postman), ruxsat beramiz
-        if (!origin) return callback(null, true);
+        if (!origin) return callback(null, true); // Postman kabi holatlar uchun
         if (allowedOrigins.includes(origin)) {
             return callback(null, true);
         } else {
+            console.log("❌ Not allowed origin:", origin);
             return callback(new Error("Not allowed by CORS"));
         }
     },
@@ -33,24 +32,26 @@ app.use(cors({
     credentials: true
 }));
 
-const url = "mongodb+srv://rahimovdev1:universe@cluster0.gwybjlk.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
-mongoose.connect(url)
-    .then(() => {
-        console.log("MongoDBga ulandi");
-    })
-    .catch((error) => {
-        console.error("mongoDBga ulanishda xatolik");
-    });
+// 2. Keyin body parser
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
+// Mongo ulanish
+const url = "mongodb+srv://rahimovdev1:universe@cluster0.gwybjlk.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
+mongoose.connect(url)
+    .then(() => console.log("✅ MongoDBga ulandi"))
+    .catch((error) => console.error("❌ MongoDB ulanishda xato:", error));
+
+// Routes
 app.use("/student", Student);
 app.use("/user", User);
 app.use("/test", Test);
 app.use("/score", Score);
 app.use("/testl", Testl);
-app.use('/scorel', ScoreL)
+app.use("/scorel", ScoreL);
 
-
+// Server
 const PORT = 5000;
 app.listen(PORT, () => {
-    console.log(`Server Port ${PORT}da ishlamoqda`);
+    console.log(`🚀 Server ${PORT} portda ishlamoqda`);
 });
