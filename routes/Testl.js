@@ -1,9 +1,19 @@
 const express = require("express");
 const multer = require("multer");
+const path = require("path");
 const Listening = require("../models/Testl");
 const router = express.Router();
 
-const storage = multer.memoryStorage();
+// 🔹 Fayllar uploads papkaga saqlanadi
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, "uploads/"); // uploads papka yaratib qo‘yilgan bo‘lishi kerak
+    },
+    filename: function (req, file, cb) {
+        cb(null, Date.now() + path.extname(file.originalname));
+    },
+});
+
 const upload = multer({ storage });
 
 /**
@@ -29,10 +39,8 @@ router.post(
 
             const newTest = new Listening({
                 title: req.body.title,
-                audio: req.files?.audio ? req.files.audio[0].buffer : null,
-                contentType: req.files?.audio ? req.files.audio[0].mimetype : null,
-                image: req.files?.image ? req.files.image[0].buffer : null,
-                imageType: req.files?.image ? req.files.image[0].mimetype : null,
+                audioPath: req.files?.audio ? `/uploads/${req.files.audio[0].filename}` : null,
+                imagePath: req.files?.image ? `/uploads/${req.files.image[0].filename}` : null,
                 questions,
             });
 
@@ -51,31 +59,23 @@ router.post(
 router.get("/info/:id", async (req, res) => {
     try {
         const listening = await Listening.findById(req.params.id);
-
         if (!listening) {
-            return res.status(404).json({ message: "Test topilmadi!" });
+            return res.status(404).json({ message: "Test topilmadi" });
         }
 
-        const baseUrl = process.env.BASE_URL || "http://localhost:5000";
-
-        const imageUrl = listening.image
-            ? `${baseUrl}/testl/image/${listening._id}`
-            : null;
-
-        const audioUrl = listening.audio
-            ? `${baseUrl}/testl/audio/${listening._id}`
-            : null;
+        const baseUrl = process.env.BASE_URL || "https://unverse-backend.onrender.com";
 
         res.json({
             _id: listening._id,
             title: listening.title,
+            transcript: listening.transcript,
             questions: listening.questions,
-            imageUrl,
-            audioUrl,
+            audioUrl: listening.audioPath ? `${baseUrl}${listening.audioPath}` : null,
+            imageUrl: listening.imagePath ? `${baseUrl}${listening.imagePath}` : null,
         });
     } catch (err) {
-        console.error("Info olishda xato:", err);
-        res.status(500).json({ message: "Server xatosi!" });
+        console.error("Test olishda xato:", err);
+        res.status(500).json({ message: "Server xatosi" });
     }
 });
 
@@ -93,43 +93,6 @@ router.get("/all", async (req, res) => {
 });
 
 /**
- * 🔹 Audio olish
- */
-router.get("/audio/:id", async (req, res) => {
-    try {
-        const listening = await Listening.findById(req.params.id);
-        if (!listening || !listening.audio) {
-            return res.status(404).json({ message: "Audio topilmadi!" });
-        }
-
-        res.set("Content-Type", listening.contentType || "audio/mpeg");
-        res.send(listening.audio);
-    } catch (err) {
-        console.error("Audio olishda xato:", err);
-        res.status(500).json({ message: "Server xatosi!" });
-    }
-});
-
-/**
- * 🔹 Rasm olish
- */
-router.get("/image/:id", async (req, res) => {
-    try {
-        const listening = await Listening.findById(req.params.id);
-        if (!listening || !listening.image) {
-            return res.status(404).json({ message: "Rasm topilmadi!" });
-        }
-
-        res.set("Content-Type", listening.imageType || "image/png");
-        res.send(listening.image);
-    } catch (err) {
-        console.error("Image olishda xato:", err);
-        res.status(500).json({ message: "Server xatosi!" });
-    }
-});
-
-
-/**
  * 🔹 Testni o‘chirish
  */
 router.delete("/:id", async (req, res) => {
@@ -144,6 +107,5 @@ router.delete("/:id", async (req, res) => {
         res.status(500).json({ message: "Server xatosi!" });
     }
 });
-
 
 module.exports = router;
