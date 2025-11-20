@@ -66,6 +66,7 @@ router.post('/register', async (req, res) => {
 // =====================
 // Student: Login
 // =====================
+
 router.post('/login', async (req, res) => {
     try {
         const { username, password } = req.body;
@@ -76,11 +77,11 @@ router.post('/login', async (req, res) => {
         const passwordMatch = await bcrypt.compare(password, user.password);
         if (!passwordMatch) return res.status(401).json({ message: '❌ Parol noto‘g‘ri' });
 
-        // JWT token yaratish
+        // ✅ 30 kunlik token
         const token = jwt.sign(
             { id: user._id, username: user.username, role: user.role },
             process.env.JWT_SECRET || "supersecretkey",
-            { expiresIn: process.env.JWT_EXPIRES || "1h" }
+            { expiresIn: "30d" }  // 🕒 token 30 kun amal qiladi
         );
 
         res.json({
@@ -93,6 +94,7 @@ router.post('/login', async (req, res) => {
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
+
 
 // =====================
 // Student: Eng so‘nggi test
