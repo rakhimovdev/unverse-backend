@@ -11,7 +11,7 @@ const Test = require("./routes/Test");
 const Score = require("./routes/Score");
 const Testl = require("./routes/Testl");
 const ScoreL = require("./routes/Scorel");
-// const Writing = require("./routes/writing");
+const Writing = require("./routes/writing");
 
 // 1. Avval CORS
 const allowedOrigins = [
@@ -54,7 +54,7 @@ app.use("/test", Test);
 app.use("/score", Score);
 app.use("/testl", Testl);   // 🔥 BU JOYNI QO‘SHDIM
 app.use("/scorel", ScoreL);
-// app.use("/posts", Writing);    // writing route uchun
+app.use("/posts", Writing);    // writing route uchun
 
 // 6. Server
 const PORT = process.env.PORT || 5000;

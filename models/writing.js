@@ -1,22 +1,14 @@
-import mongoose from "mongoose";
+const mongoose = require("mongoose");
 
-const PostSchema = new mongoose.Schema(
-    {
-        title: {
-            type: String,
-            required: true,
-            trim: true,
-        },
-        content: {
-            type: String,
-            required: true,
-        },
-        imageUrl: {
-            type: String,
-            required: false, // rasm bo‘lishi shart emas
-        }
+const WritingSchema = new mongoose.Schema({
+    image: {
+        type: String,
+        required: true
     },
-    { timestamps: true }
-);
+    topic: {
+        type: String,
+        required: true
+    }
+}, { timestamps: true });
 
-export default mongoose.model("Post", PostSchema);
+module.exports = mongoose.model("Writing", WritingSchema);
