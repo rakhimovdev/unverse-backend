@@ -3,11 +3,11 @@ const mongoose = require("mongoose");
 const QuestionSchema = new mongoose.Schema({
     value: {
         type: String,
-        required: false, // bo‘sh qolishi ham mumkin
+        required: false,
     },
     type: {
         type: String,
-        enum: ["text", "select"], // faqat shu turlarni qabul qiladi
+        enum: ["text", "select"],
         default: "text",
     },
 });
@@ -33,9 +33,23 @@ const TestSchema = new mongoose.Schema(
         },
         student: {
             type: mongoose.Schema.Types.ObjectId,
-            ref: "User", // agar User modeliga bog‘lasangiz
+            ref: "User",
             required: false,
         },
+
+        mode: {
+            type: String,
+            enum: ["full", "part"],
+            default: "full"
+        },
+
+        // 🔥 YANGI QO‘SHILDI: duration
+        // full → 30 minut
+        // part → 20 minut
+        duration: {
+            type: Number, // daqiqalarda
+            default: 60
+        }
     },
     { timestamps: true }
 );
