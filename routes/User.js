@@ -97,9 +97,9 @@ router.post("/register", async (req, res) => {
         // Token yaratish
         const token = jwt.sign(
             { id: user._id, username: user.username, role: user.role },
-            process.env.JWT_SECRET,
-            { expiresIn: process.env.JWT_EXPIRES || "30d" } // default 1 soat
+            process.env.JWT_SECRET
         );
+
 
         res.status(201).json({
             message: " Teacher ro‘yxatdan o‘tdi",
@@ -141,9 +141,9 @@ router.post("/login", async (req, res) => {
 
         const token = jwt.sign(
             { id: user._id, username: user.username, role: user.role },
-            process.env.JWT_SECRET,
-            { expiresIn: process.env.JWT_EXPIRES || "30d" }
+            process.env.JWT_SECRET
         );
+
 
         res.json({
             message: " Login muvaffaqiyatli",

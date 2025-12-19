@@ -80,9 +80,9 @@ router.post('/login', async (req, res) => {
         // ✅ 30 kunlik token
         const token = jwt.sign(
             { id: user._id, username: user.username, role: user.role },
-            process.env.JWT_SECRET || "supersecretkey",
-            { expiresIn: "30d" }  // 🕒 token 30 kun amal qiladi
+            process.env.JWT_SECRET || "supersecretkey"
         );
+
 
         res.json({
             message: '✅ Login successful',
