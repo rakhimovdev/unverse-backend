@@ -42,18 +42,29 @@ router.post("/upload", upload.single("image"), async (req, res) => {
   }
 });
 
+router.delete("/delete/:id", async (req, res) => {
+  try {
+    const writing = await Writing.findByIdAndDelete(req.params.id);
+    if (!writing) {
+      return res.status(404).json({ message: "Writing topilmadi!" });
+    }
+    res.json({ message: "✅ Writing o‘chirildi" });
+  } catch (err) {
+    console.error("Delete qilishda xato:", err);
+    res.status(500).json({ message: "Server xatosi!" });
+  }
+})
 
 // -------------------- GET: All writings --------------------
 router.get("/all", async (req, res) => {
-  console.log("GET /writing/all HIT"); // 👈 SHU CHIQSIN
   try {
-    const writings = await Writing.find().sort({ createdAt: -1 });
-    res.json(writings);
-  } catch (error) {
-    res.status(500).json({ error: "Server error" });
+    const tests = await Writing.find().select("_id topic");
+    res.json(tests);
+  } catch (err) {
+    console.error("All olishda xato:", err);
+    res.status(500).json({ message: "Server xatosi!" });
   }
 });
-
 
 // -------------------- GET: One writing --------------------
 router.get("/:id", async (req, res) => {
