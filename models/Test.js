@@ -12,6 +12,13 @@ const QuestionSchema = new mongoose.Schema({
     },
 });
 
+const PassageSchema = new mongoose.Schema({
+    passageNumber: { type: Number, required: true }, // 1,2,3
+    readingText: { type: String, default: "" },
+    testText: { type: String, default: "" },
+    questions: { type: [QuestionSchema], default: [] },
+});
+
 const TestSchema = new mongoose.Schema(
     {
         name: {
@@ -19,18 +26,12 @@ const TestSchema = new mongoose.Schema(
             required: true,
             trim: true,
         },
-        testText: {
-            type: String,
-            required: true,
+
+        passages: {
+            type: [PassageSchema],
+            required: true, // 3 passage majburiy
         },
-        readingText: {
-            type: String,
-            default: "",
-        },
-        questions: {
-            type: [QuestionSchema],
-            default: [],
-        },
+
         student: {
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
@@ -43,9 +44,6 @@ const TestSchema = new mongoose.Schema(
             default: "full"
         },
 
-        // 🔥 YANGI QO‘SHILDI: duration
-        // full → 30 minut
-        // part → 20 minut
         duration: {
             type: Number, // daqiqalarda
             default: 60
