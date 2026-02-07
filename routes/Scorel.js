@@ -77,7 +77,7 @@ router.get("/all", auth, async (req, res) => {
     }
 });
 
-// Score o‘chirish
+// Score o‘chirish                                                                                                                                                                                                                                                                                              
 router.delete("/delete/:id", auth, async (req, res) => {
     try {
         const score = await ScoreL.findById(req.params.id);
