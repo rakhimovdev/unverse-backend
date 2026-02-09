@@ -82,11 +82,27 @@ router.get("/last", async (req, res) => {
 ===================== */
 router.get("/all", async (req, res) => {
     try {
-        const { mode } = req.query;
+        const { mode, summary, page, limit } = req.query;
         const filter = {};
         if (isValidMode(mode)) filter.mode = mode;
 
-        const tests = await Test.find(filter).sort({ createdAt: -1 });
+        let query = Test.find(filter).sort({ createdAt: -1 });
+
+        const wantSummary =
+            summary === "1" || summary === "true" || summary === true;
+
+        if (wantSummary) {
+            query = query.select("name createdAt mode");
+        }
+
+        const limitNum = Number(limit || 0);
+        const pageNum = Math.max(Number(page || 1), 1);
+        if (Number.isFinite(limitNum) && limitNum > 0) {
+            const skip = (pageNum - 1) * limitNum;
+            query = query.skip(skip).limit(limitNum);
+        }
+
+        const tests = await query.lean();
         return res.json(tests);
     } catch (err) {
         console.error("GET /test/all error:", err);
