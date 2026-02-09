@@ -2,14 +2,18 @@ const mongoose = require("mongoose");
 
 const WritingSchema = new mongoose.Schema(
     {
-        image: {
+        task1Topic: String,
+        task1Image: String,
+        task2Topic: String,
+        task2Text: String,
+        // Legacy fields (older data)
+        image: String,
+        task: {
             type: String,
-            required: true
+            enum: ["task1", "task2"]
         },
-        topic: {
-            type: String,
-            required: true
-        }
+        taskText: String,
+        topic: String
     },
     { timestamps: true }
 );

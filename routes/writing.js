@@ -24,13 +24,60 @@ router.post("/upload", upload.single("image"), async (req, res) => {
     console.log("BODY:", req.body);
     console.log("FILE:", req.file);
 
-    if (!req.file) {
+    const hasCombinedFields = ["task1Topic", "task2Topic", "task2Text"].some(
+      (key) => Object.prototype.hasOwnProperty.call(req.body, key)
+    );
+
+    if (hasCombinedFields) {
+      const task1Topic = (req.body.task1Topic || "").trim();
+      const task2Topic = (req.body.task2Topic || "").trim();
+      const task2Text = (req.body.task2Text || "").trim();
+
+      if (!task1Topic) {
+        return res.status(400).json({ message: "Task 1 topic yozilmagan!" });
+      }
+      if (!req.file) {
+        return res.status(400).json({ message: "Task 1 rasmi kelmadi!" });
+      }
+      if (!task2Topic) {
+        return res.status(400).json({ message: "Task 2 topic yozilmagan!" });
+      }
+      if (!task2Text) {
+        return res.status(400).json({ message: "Task 2 matni yozilmagan!" });
+      }
+
+      const newWriting = new Writing({
+        task1Topic,
+        task1Image: req.file.filename,
+        task2Topic,
+        task2Text,
+        topic: task1Topic,
+        image: req.file.filename
+      });
+
+      await newWriting.save();
+      return res.status(201).json(newWriting);
+    }
+
+    // Legacy single-task upload
+    const task = req.body.task === "task2" ? "task2" : "task1";
+    const taskText = (req.body.taskText || "").trim();
+
+    if (task === "task1" && !req.file) {
       return res.status(400).json({ message: "Image kelmadi!" });
+    }
+    if (!req.body.topic || !req.body.topic.trim()) {
+      return res.status(400).json({ message: "Topic yozilmagan!" });
+    }
+    if (task === "task2" && !taskText) {
+      return res.status(400).json({ message: "Task 2 matni yozilmagan!" });
     }
 
     const newWriting = new Writing({
       topic: req.body.topic,
-      image: req.file.filename
+      task,
+      taskText,
+      image: req.file ? req.file.filename : ""
     });
 
     await newWriting.save();
@@ -58,7 +105,11 @@ router.delete("/delete/:id", async (req, res) => {
 // -------------------- GET: All writings --------------------
 router.get("/all", async (req, res) => {
   try {
-    const tests = await Writing.find().select("_id topic");
+    const tests = await Writing.find({
+      task1Topic: { $exists: true, $ne: "" },
+      task2Topic: { $exists: true, $ne: "" },
+      task2Text: { $exists: true, $ne: "" }
+    }).select("_id task1Topic task2Topic topic");
     res.json(tests);
   } catch (err) {
     console.error("All olishda xato:", err);
@@ -82,10 +133,28 @@ router.get("/:id", async (req, res) => {
 // -------------------- POST: Save user response --------------------
 router.post("/response", async (req, res) => {
   try {
-    const { writingId, topic, userId, answer } = req.body;
+    const {
+      writingId,
+      topic,
+      userId,
+      answer,
+      task1Answer,
+      task2Answer
+    } = req.body;
 
-    if (!writingId || !userId || !answer) {
+    const hasCombinedAnswers =
+      task1Answer !== undefined || task2Answer !== undefined;
+
+    if (!writingId || !userId) {
       return res.status(400).json({ message: "Missing fields" });
+    }
+
+    if (hasCombinedAnswers) {
+      if (!task1Answer || !task2Answer) {
+        return res.status(400).json({ message: "Ikkala task javobi kerak" });
+      }
+    } else if (!answer) {
+      return res.status(400).json({ message: "Answer kerak" });
     }
 
     // 🔹 Userni topamiz
@@ -94,14 +163,34 @@ router.post("/response", async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    const newResponse = new Response({
-      writingId,
-      topic,
-      userId,
-      userName: user.name,
-      userLastname: user.lastname,
-      answer
-    });
+    const writing = await Writing.findById(writingId);
+    if (!writing) {
+      return res.status(404).json({ message: "Writing topilmadi!" });
+    }
+    const task1Topic = writing?.task1Topic || writing?.topic || "";
+    const task2Topic = writing?.task2Topic || "";
+
+    const newResponse = new Response(
+      hasCombinedAnswers
+        ? {
+            writingId,
+            task1Topic,
+            task2Topic,
+            task1Answer,
+            task2Answer,
+            userId,
+            userName: user.name,
+            userLastname: user.lastname
+          }
+        : {
+            writingId,
+            topic: topic || task1Topic,
+            userId,
+            userName: user.name,
+            userLastname: user.lastname,
+            answer
+          }
+    );
 
     await newResponse.save();
 

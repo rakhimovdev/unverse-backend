@@ -7,10 +7,10 @@ const ResponseSchema = new mongoose.Schema(
             ref: "Writing",
             required: true
         },
-        topic: {
-            type: String,
-            required: true
-        },
+        task1Topic: String,
+        task2Topic: String,
+        // legacy fields
+        topic: String,
         userName: String,
         userLastname: String,
         userId: {
@@ -18,10 +18,10 @@ const ResponseSchema = new mongoose.Schema(
             ref: "User",
             required: true
         },
-        answer: {
-            type: String,
-            required: true
-        }
+        task1Answer: String,
+        task2Answer: String,
+        // legacy fields
+        answer: String
     },
     { timestamps: true }
 );

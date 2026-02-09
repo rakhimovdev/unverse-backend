@@ -14,11 +14,23 @@ const auth = require("../middleware/auth");
 // ===============================
 router.post("/response", auth, async (req, res) => {
     try {
-        const { writingId, topic, answer } = req.body;
+        const { writingId, topic, answer, task1Answer, task2Answer } = req.body;
         const userId = req.user.id;
+        const hasCombinedAnswers =
+            task1Answer !== undefined || task2Answer !== undefined;
 
-        if (!writingId || !answer) {
-            return res.status(400).json({ message: "writingId va answer kerak!" });
+        if (!writingId) {
+            return res.status(400).json({ message: "writingId kerak!" });
+        }
+
+        if (hasCombinedAnswers) {
+            if (!task1Answer || !task2Answer) {
+                return res
+                    .status(400)
+                    .json({ message: "Task 1 va Task 2 javoblari kerak!" });
+            }
+        } else if (!answer) {
+            return res.status(400).json({ message: "answer kerak!" });
         }
 
         const user = await User.findById(userId);
@@ -31,14 +43,30 @@ router.post("/response", auth, async (req, res) => {
             return res.status(404).json({ message: "Writing topilmadi!" });
         }
 
-        const newResponse = new Response({
-            writingId,
-            topic: topic || writing.topic,
-            userId,
-            userName: user.name,
-            userLastname: user.lastname,
-            answer
-        });
+        const task1Topic = writing.task1Topic || writing.topic || "";
+        const task2Topic = writing.task2Topic || "";
+
+        const newResponse = new Response(
+            hasCombinedAnswers
+                ? {
+                      writingId,
+                      task1Topic,
+                      task2Topic,
+                      task1Answer,
+                      task2Answer,
+                      userId,
+                      userName: user.name,
+                      userLastname: user.lastname
+                  }
+                : {
+                      writingId,
+                      topic: topic || task1Topic,
+                      userId,
+                      userName: user.name,
+                      userLastname: user.lastname,
+                      answer
+                  }
+        );
 
         await newResponse.save();
 
@@ -77,7 +105,7 @@ router.post("/add", auth, async (req, res) => {
         const newScore = new ScoreW({
             student: req.body.studentId,
             test: writing._id,
-            testName: writing.topic,
+            testName: writing.task1Topic || writing.topic || "Writing Test",
             score,
             teacher: user._id
         });
@@ -107,7 +135,7 @@ router.get("/all", auth, async (req, res) => {
 
         const scores = await ScoreW.find()
             .populate("student", "name lastname")
-            .populate("test", "topic");
+            .populate("test", "task1Topic task2Topic topic");
 
         res.json(scores);
     } catch (error) {
