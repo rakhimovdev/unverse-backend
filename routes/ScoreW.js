@@ -86,10 +86,12 @@ router.post("/response", auth, async (req, res) => {
 // ===============================
 router.post("/add", auth, async (req, res) => {
     try {
-        const { writingId, score } = req.body;
+        const { writingId, score, studentId } = req.body;
 
-        if (!writingId || score === undefined) {
-            return res.status(400).json({ message: "writingId va score kerak!" });
+        if (!writingId || score === undefined || !studentId) {
+            return res
+                .status(400)
+                .json({ message: "writingId, studentId va score kerak!" });
         }
 
         const user = await User.findById(req.user.id);
@@ -102,12 +104,31 @@ router.post("/add", auth, async (req, res) => {
             return res.status(404).json({ message: "Writing topilmadi!" });
         }
 
+        const student = await User.findById(studentId);
+        if (!student || student.role !== "student") {
+            return res.status(404).json({ message: "Student topilmadi!" });
+        }
+
+        let existing = await ScoreW.findOne({ student: studentId, test: writingId });
+        if (existing) {
+            existing.score = score;
+            existing.testName = writing.task1Topic || writing.topic || "Writing Test";
+            existing.studentName = student.name;
+            existing.studentLastname = student.lastname;
+            await existing.save();
+            return res.json({
+                message: "Score yangilandi ✅",
+                score: existing
+            });
+        }
+
         const newScore = new ScoreW({
-            student: req.body.studentId,
+            student: studentId,
+            studentName: student.name,
+            studentLastname: student.lastname,
             test: writing._id,
             testName: writing.task1Topic || writing.topic || "Writing Test",
-            score,
-            teacher: user._id
+            score
         });
 
         await newScore.save();
@@ -138,6 +159,123 @@ router.get("/all", auth, async (req, res) => {
             .populate("test", "task1Topic task2Topic topic");
 
         res.json(scores);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Server xatosi!" });
+    }
+});
+
+// ===============================
+// 📊 STUDENT: My writing scores
+// ===============================
+router.get("/my", auth, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user || user.role !== "student") {
+            return res.status(403).json({ message: "Faqat student ko‘ra oladi!" });
+        }
+
+        const scores = await ScoreW.find({ student: req.user.id }).sort({
+            createdAt: -1
+        });
+        res.json(scores);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Server xatosi!" });
+    }
+});
+
+// ===============================
+// 📚 TEACHER: Writing responses list
+// ===============================
+router.get("/responses", auth, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user || user.role !== "teacher") {
+            return res.status(403).json({ message: "Siz teacher emassiz!" });
+        }
+
+        const responses = await Response.find()
+            .sort({ createdAt: -1 })
+            .populate(
+                "writingId",
+                "task1Topic task2Topic task1Image task1Text task2Text image topic task taskText"
+            );
+
+        const studentIds = responses
+            .map((r) => r.userId)
+            .filter(Boolean);
+        const writingIds = responses
+            .map((r) => r.writingId?._id || r.writingId)
+            .filter(Boolean);
+
+        const scores = await ScoreW.find({
+            student: { $in: studentIds },
+            test: { $in: writingIds }
+        });
+
+        const scoreMap = new Map(
+            scores.map((s) => [`${s.student}:${s.test}`, s])
+        );
+
+        const payload = responses.map((r) => {
+            const key = `${r.userId}:${r.writingId?._id || r.writingId}`;
+            const score = scoreMap.get(key);
+            return {
+                ...r.toObject(),
+                score: score ? score.score : ""
+            };
+        });
+
+        res.json(payload);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Server xatosi!" });
+    }
+});
+
+// ===============================
+// 🧾 TEACHER: Single response
+// ===============================
+router.get("/responses/:id", auth, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user || user.role !== "teacher") {
+            return res.status(403).json({ message: "Siz teacher emassiz!" });
+        }
+
+        const response = await Response.findById(req.params.id).populate(
+            "writingId",
+            "task1Topic task2Topic task1Image task1Text task2Text image topic task taskText"
+        );
+
+        if (!response) {
+            return res.status(404).json({ message: "Response topilmadi!" });
+        }
+
+        res.json(response);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Server xatosi!" });
+    }
+});
+
+// ===============================
+// 🗑️ TEACHER: Delete response
+// ===============================
+router.delete("/responses/:id", auth, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user || user.role !== "teacher") {
+            return res.status(403).json({ message: "Siz teacher emassiz!" });
+        }
+
+        const deleted = await Response.findByIdAndDelete(req.params.id);
+        if (!deleted) {
+            return res.status(404).json({ message: "Response topilmadi!" });
+        }
+
+        res.json({ message: "✅ Response o‘chirildi" });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: "Server xatosi!" });

@@ -4,6 +4,7 @@ const WritingSchema = new mongoose.Schema(
     {
         task1Topic: String,
         task1Image: String,
+        task1Text: String,
         task2Topic: String,
         task2Text: String,
         // Legacy fields (older data)

@@ -24,13 +24,14 @@ router.post("/upload", upload.single("image"), async (req, res) => {
     console.log("BODY:", req.body);
     console.log("FILE:", req.file);
 
-    const hasCombinedFields = ["task1Topic", "task2Topic", "task2Text"].some(
+    const hasCombinedFields = ["task1Topic", "task1Text", "task2Topic", "task2Text"].some(
       (key) => Object.prototype.hasOwnProperty.call(req.body, key)
     );
 
     if (hasCombinedFields) {
       const task1Topic = (req.body.task1Topic || "").trim();
-      const task2Topic = (req.body.task2Topic || "").trim();
+      const task1Text = (req.body.task1Text || "").trim();
+      const task2Topic = task1Topic;
       const task2Text = (req.body.task2Text || "").trim();
 
       if (!task1Topic) {
@@ -39,8 +40,8 @@ router.post("/upload", upload.single("image"), async (req, res) => {
       if (!req.file) {
         return res.status(400).json({ message: "Task 1 rasmi kelmadi!" });
       }
-      if (!task2Topic) {
-        return res.status(400).json({ message: "Task 2 topic yozilmagan!" });
+      if (!task1Text) {
+        return res.status(400).json({ message: "Task 1 matni yozilmagan!" });
       }
       if (!task2Text) {
         return res.status(400).json({ message: "Task 2 matni yozilmagan!" });
@@ -49,6 +50,7 @@ router.post("/upload", upload.single("image"), async (req, res) => {
       const newWriting = new Writing({
         task1Topic,
         task1Image: req.file.filename,
+        task1Text,
         task2Topic,
         task2Text,
         topic: task1Topic,
