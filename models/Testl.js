@@ -17,6 +17,7 @@ const ListeningSchema = new mongoose.Schema(
   {
     title: { type: String, required: true, trim: true },
     transcript: { type: String, default: "", trim: true },
+    testText: { type: String, default: "" },
     questions: { type: [QuestionSchema], default: [] },
 
     // 🔹 Path sifatida saqlanadi

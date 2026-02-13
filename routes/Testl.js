@@ -39,6 +39,8 @@ router.post(
 
             const newTest = new Listening({
                 title: req.body.title,
+                transcript: req.body.transcript || "",
+                testText: req.body.testText || "",
                 audioPath: req.files?.audio ? `/uploads/${req.files.audio[0].filename}` : null,
                 imagePath: req.files?.image ? `/uploads/${req.files.image[0].filename}` : null,
                 questions,
@@ -69,6 +71,7 @@ router.get("/info/:id", async (req, res) => {
             _id: listening._id,
             title: listening.title,
             transcript: listening.transcript,
+            testText: listening.testText,
             questions: listening.questions,
             audioUrl: listening.audioPath ? `${baseUrl}${listening.audioPath}` : null,
             imageUrl: listening.imagePath ? `${baseUrl}${listening.imagePath}` : null,
