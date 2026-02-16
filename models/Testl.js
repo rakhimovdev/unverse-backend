@@ -13,12 +13,24 @@ const QuestionSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const PartSchema = new mongoose.Schema(
+  {
+    partNumber: { type: Number, required: true },
+    transcript: { type: String, default: "", trim: true },
+    testText: { type: String, default: "" },
+    questions: { type: [QuestionSchema], default: [] },
+    imagePath: { type: String, default: null },
+  },
+  { _id: false }
+);
+
 const ListeningSchema = new mongoose.Schema(
   {
     title: { type: String, required: true, trim: true },
     transcript: { type: String, default: "", trim: true },
     testText: { type: String, default: "" },
     questions: { type: [QuestionSchema], default: [] },
+    parts: { type: [PartSchema], default: [] },
 
     // 🔹 Path sifatida saqlanadi
     audioPath: { type: String, default: null },

@@ -4,12 +4,17 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const multer = require("multer");
 const dotenv = require("dotenv");
+const fs = require("fs");
+const path = require("path");
 
 const User = require("../models/User");
 const Test = require("../models/Test");
 const Score = require("../models/Score");
 
 dotenv.config();
+
+const uploadDir = path.join(__dirname, "..", "uploads");
+fs.mkdirSync(uploadDir, { recursive: true });
 
 // =====================
 // Auth Middleware
@@ -55,7 +60,7 @@ function roleMiddleware(...roles) {
 // =====================
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
-        cb(null, "uploads/");
+        cb(null, uploadDir);
     },
     filename: function (req, file, cb) {
         cb(null, Date.now() + "-" + file.originalname);
