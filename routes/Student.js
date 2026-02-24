@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs'); // bcrypt emas, bcryptjs ishlatgan yaxshi
 const jwt = require('jsonwebtoken');
 
 const User = require('../models/User');
+const TimeSlot = require('../models/TimeSlot');
 const Test = require('../models/Testl');
 const Score = require('../models/Score');
 
@@ -30,15 +31,114 @@ function authMiddleware(req, res, next) {
 }
 
 // =====================
+// Student: Teacher list (public)
+// =====================
+router.get('/teachers', async (req, res) => {
+    try {
+        const teachers = await User.find({ role: "teacher" })
+            .select("name lastname username email")
+            .sort({ name: 1, lastname: 1 });
+        res.json(teachers);
+    } catch (err) {
+        console.error("Teacher list error:", err);
+        res.status(500).json({ message: "Server xatosi" });
+    }
+});
+
+// =====================
+// Student: Time slot list (public)
+// =====================
+router.get('/timeslots', async (req, res) => {
+    try {
+        const { teacherId, group } = req.query;
+        const filter = teacherId ? { teacher: teacherId } : {};
+
+        let dayFilter = {};
+        if (group === "juft") {
+            dayFilter = { day: { $in: ["Seshanba", "Payshanba", "Shanba"] } };
+        } else if (group === "toq") {
+            dayFilter = { day: { $in: ["Dushanba", "Chorshanba", "Juma"] } };
+        }
+
+        const slots = await TimeSlot.find({ ...filter, ...dayFilter }).sort({ day: 1, time: 1 });
+
+        if (group) {
+            const timeMap = new Map();
+            slots.forEach((slot) => {
+                const key = String(slot.time);
+                const entry = timeMap.get(key) || { time: slot.time, slotIds: [] };
+                entry.slotIds.push(slot._id);
+                timeMap.set(key, entry);
+            });
+            return res.json(Array.from(timeMap.values()));
+        }
+
+        res.json(slots);
+    } catch (err) {
+        console.error("Time slot list error:", err);
+        res.status(500).json({ message: "Server xatosi" });
+    }
+});
+
+// =====================
 // Student: Register
 // =====================
 router.post('/register', async (req, res) => {
     try {
-        const { email, name, lastname, username, password } = req.body;
+        const {
+            email,
+            name,
+            lastname,
+            username,
+            password,
+            teacherId,
+            timeSlotId,
+            timeSlotIds,
+            timeGroup,
+            time
+        } = req.body;
+
+        if (!teacherId || !(timeSlotId || timeSlotIds || (timeGroup && time))) {
+            return res.status(400).json({ message: '❌ Teacher va vaqtni tanlash kerak' });
+        }
 
         const existingUser = await User.findOne({ $or: [{ username }, { email }] });
         if (existingUser)
             return res.status(400).json({ message: '❌ Username yoki email allaqachon mavjud' });
+
+        const teacher = await User.findOne({ _id: teacherId, role: "teacher" });
+        if (!teacher) {
+            return res.status(400).json({ message: '❌ Teacher topilmadi' });
+        }
+
+        let selectedSlots = [];
+
+        if (Array.isArray(timeSlotIds) && timeSlotIds.length) {
+            selectedSlots = await TimeSlot.find({ _id: { $in: timeSlotIds } });
+        } else if (timeSlotId) {
+            const single = await TimeSlot.findById(timeSlotId);
+            if (single) selectedSlots = [single];
+        } else if (timeGroup && time) {
+            const dayList =
+                timeGroup === "juft"
+                    ? ["Seshanba", "Payshanba", "Shanba"]
+                    : timeGroup === "toq"
+                        ? ["Dushanba", "Chorshanba", "Juma"]
+                        : [];
+            selectedSlots = await TimeSlot.find({
+                teacher: teacher._id,
+                day: { $in: dayList },
+                time: String(time).trim()
+            });
+        }
+
+        if (!selectedSlots.length) {
+            return res.status(400).json({ message: '❌ Tanlangan vaqt topilmadi' });
+        }
+
+        if (selectedSlots.some((slot) => String(slot.teacher) !== String(teacher._id))) {
+            return res.status(400).json({ message: '❌ Bu vaqt tanlangan teacherga tegishli emas' });
+        }
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -48,7 +148,10 @@ router.post('/register', async (req, res) => {
             lastname,
             username,
             password: hashedPassword,
-            role: "student"
+            role: "student",
+            teacher: teacher._id,
+            timeSlot: selectedSlots[0]?._id || null,
+            timeSlots: selectedSlots.map((s) => s._id)
         });
 
         await user.save();

@@ -73,8 +73,15 @@ router.get("/all", auth, async (req, res) => {
             return res.status(403).json({ message: "Siz teacher emassiz!" });
         }
 
-        const scores = await Score.find()
-            .populate("student", "name lastname email")
+        const students = await User.find({ role: "student", teacher: user._id }).select("_id");
+        const studentIds = students.map((s) => s._id);
+
+        if (studentIds.length === 0) {
+            return res.json([]);
+        }
+
+        const scores = await Score.find({ student: { $in: studentIds } })
+            .populate("student", "name lastname email timeSlot timeSlots")
             .populate("test", "name");
 
         res.json(scores);

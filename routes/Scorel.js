@@ -69,7 +69,15 @@ router.get("/all", auth, async (req, res) => {
             return res.status(403).json({ message: "Siz teacher emassiz!" });
         }
 
-        const scores = await ScoreL.find();
+        const students = await User.find({ role: "student", teacher: user._id }).select("_id");
+        const studentIds = students.map((s) => s._id);
+
+        if (studentIds.length === 0) {
+            return res.json([]);
+        }
+
+        const scores = await ScoreL.find({ student: { $in: studentIds } })
+            .populate("student", "name lastname email timeSlot timeSlots");
         res.json(scores);
     } catch (err) {
         console.error(err);

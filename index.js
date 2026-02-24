@@ -13,6 +13,7 @@ const Testl = require("./routes/Testl");
 const ScoreL = require("./routes/Scorel");
 const Writing = require("./routes/writing");
 const ScoreW = require("./routes/ScoreW");
+const Admin = require("./routes/Admin");
 
 // 1. Avval CORS
 const allowedOrigins = [
@@ -57,6 +58,7 @@ app.use("/testl", Testl);   // 🔥 BU JOYNI QO‘SHDIM
 app.use("/scorel", ScoreL);
 app.use("/posts", Writing);
 app.use("/scorew", ScoreW);   // writing route uchun
+app.use("/admin", Admin);
 
 // 6. Server
 const PORT = process.env.PORT || 5000;

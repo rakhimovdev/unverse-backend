@@ -1,26 +1,16 @@
 const express = require("express");
 const router = express.Router();
 const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
 const Writing = require("../models/writing");
 const Response = require("../models/Response");
 const User = require("../models/Student");
 
-const uploadDir = path.join(__dirname, "..", "uploads");
-fs.mkdirSync(uploadDir, { recursive: true });
-
 // -------------------- MULTER --------------------
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + path.extname(file.originalname));
-  }
-});
-
+const storage = multer.memoryStorage();
 const upload = multer({ storage });
+
+const toDataUri = (file) =>
+  `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
 
 // -------------------- POST: Writing create --------------------
 router.post("/upload", upload.single("image"), async (req, res) => {
@@ -31,6 +21,8 @@ router.post("/upload", upload.single("image"), async (req, res) => {
     const hasCombinedFields = ["task1Topic", "task1Text", "task2Topic", "task2Text"].some(
       (key) => Object.prototype.hasOwnProperty.call(req.body, key)
     );
+
+    const imageData = req.file ? toDataUri(req.file) : "";
 
     if (hasCombinedFields) {
       const task1Topic = (req.body.task1Topic || "").trim();
@@ -53,12 +45,12 @@ router.post("/upload", upload.single("image"), async (req, res) => {
 
       const newWriting = new Writing({
         task1Topic,
-        task1Image: req.file.filename,
+        task1Image: imageData,
         task1Text,
         task2Topic,
         task2Text,
         topic: task1Topic,
-        image: req.file.filename
+        image: imageData
       });
 
       await newWriting.save();
@@ -83,7 +75,7 @@ router.post("/upload", upload.single("image"), async (req, res) => {
       topic: req.body.topic,
       task,
       taskText,
-      image: req.file ? req.file.filename : ""
+      image: req.file ? imageData : ""
     });
 
     await newWriting.save();

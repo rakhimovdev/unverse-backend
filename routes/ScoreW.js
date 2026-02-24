@@ -108,6 +108,9 @@ router.post("/add", auth, async (req, res) => {
         if (!student || student.role !== "student") {
             return res.status(404).json({ message: "Student topilmadi!" });
         }
+        if (String(student.teacher) !== String(user._id)) {
+            return res.status(403).json({ message: "Bu student sizga tegishli emas!" });
+        }
 
         let existing = await ScoreW.findOne({ student: studentId, test: writingId });
         if (existing) {
@@ -195,22 +198,30 @@ router.get("/responses", auth, async (req, res) => {
             return res.status(403).json({ message: "Siz teacher emassiz!" });
         }
 
-        const responses = await Response.find()
+        const students = await User.find({ role: "student", teacher: user._id }).select("_id");
+        const studentIds = students.map((s) => s._id);
+
+        if (studentIds.length === 0) {
+            return res.json([]);
+        }
+
+        const responses = await Response.find({ userId: { $in: studentIds } })
             .sort({ createdAt: -1 })
             .populate(
                 "writingId",
                 "task1Topic task2Topic task1Image task1Text task2Text image topic task taskText"
-            );
+            )
+            .populate("userId", "name lastname timeSlot timeSlots");
 
-        const studentIds = responses
-            .map((r) => r.userId)
+        const responseStudentIds = responses
+            .map((r) => r.userId?._id || r.userId)
             .filter(Boolean);
         const writingIds = responses
             .map((r) => r.writingId?._id || r.writingId)
             .filter(Boolean);
 
         const scores = await ScoreW.find({
-            student: { $in: studentIds },
+            student: { $in: responseStudentIds },
             test: { $in: writingIds }
         });
 
@@ -219,7 +230,8 @@ router.get("/responses", auth, async (req, res) => {
         );
 
         const payload = responses.map((r) => {
-            const key = `${r.userId}:${r.writingId?._id || r.writingId}`;
+            const studentKey = r.userId?._id || r.userId;
+            const key = `${studentKey}:${r.writingId?._id || r.writingId}`;
             const score = scoreMap.get(key);
             return {
                 ...r.toObject(),
