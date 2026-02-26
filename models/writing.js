@@ -14,7 +14,12 @@ const WritingSchema = new mongoose.Schema(
             enum: ["task1", "task2"]
         },
         taskText: String,
-        topic: String
+        topic: String,
+        audience: {
+            type: String,
+            enum: ["regular", "mooc"],
+            default: "regular"
+        }
     },
     { timestamps: true }
 );

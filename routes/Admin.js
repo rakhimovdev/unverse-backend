@@ -7,6 +7,10 @@ const User = require("../models/User");
 const TimeSlot = require("../models/TimeSlot");
 const Attendance = require("../models/Attendance");
 const SlotCheck = require("../models/SlotCheck");
+const Score = require("../models/Score");
+const ScoreL = require("../models/ScoreL");
+const ScoreW = require("../models/ScoreW");
+const WritingResult = require("../models/WritingResult");
 
 const getTodayKey = () => {
     const now = new Date();
@@ -80,6 +84,122 @@ router.put("/teachers/:id/password", auth, adminOnly, async (req, res) => {
         res.json({ message: "Parol yangilandi ✅" });
     } catch (err) {
         console.error("Admin update teacher password error:", err);
+        res.status(500).json({ message: "Server xatosi" });
+    }
+});
+
+// =====================
+// Admin: MOOC students list
+// =====================
+router.get("/mooc-students", auth, adminOnly, async (req, res) => {
+    try {
+        const students = await User.find({ role: "mooc" })
+            .select("-password")
+            .sort({ createdAt: -1 });
+        res.json(students);
+    } catch (err) {
+        console.error("Admin MOOC list error:", err);
+        res.status(500).json({ message: "Server xatosi" });
+    }
+});
+
+// =====================
+// Admin: Create MOOC student
+// =====================
+router.post("/mooc-students", auth, adminOnly, async (req, res) => {
+    try {
+        const { email, name, lastname, username, password } = req.body;
+
+        if (!email || !name || !lastname || !username || !password) {
+            return res.status(400).json({ message: "Barcha maydonlarni to'ldiring" });
+        }
+
+        if (password.length < 6) {
+            return res.status(400).json({ message: "Parol kamida 6 ta belgi bo'lsin" });
+        }
+
+        const existing = await User.findOne({
+            $or: [{ username }, { email }]
+        });
+        if (existing) {
+            return res.status(400).json({ message: "Username yoki email allaqachon mavjud" });
+        }
+
+        const hashed = await bcrypt.hash(password, 10);
+        const user = new User({
+            email,
+            name,
+            lastname,
+            username,
+            password: hashed,
+            role: "mooc"
+        });
+
+        await user.save();
+
+        res.status(201).json({
+            message: "MOOC student qo'shildi ✅",
+            user: {
+                id: user._id,
+                email: user.email,
+                username: user.username,
+                role: user.role
+            }
+        });
+    } catch (err) {
+        console.error("Admin create MOOC error:", err);
+        res.status(500).json({ message: "Server xatosi" });
+    }
+});
+
+// =====================
+// Admin: Delete MOOC student
+// =====================
+router.delete("/mooc-students/:id", auth, adminOnly, async (req, res) => {
+    try {
+        const student = await User.findOne({ _id: req.params.id, role: "mooc" });
+        if (!student) {
+            return res.status(404).json({ message: "MOOC student topilmadi" });
+        }
+
+        await student.deleteOne();
+        res.json({ message: "MOOC student o'chirildi ✅" });
+    } catch (err) {
+        console.error("Admin delete MOOC error:", err);
+        res.status(500).json({ message: "Server xatosi" });
+    }
+});
+
+// =====================
+// Admin: MOOC student scores
+// =====================
+router.get("/mooc-students/:id/scores", auth, adminOnly, async (req, res) => {
+    try {
+        const student = await User.findById(req.params.id).select("role name lastname email");
+        if (!student || !["mooc", "mock_user"].includes(student.role)) {
+            return res.status(404).json({ message: "MOOC student topilmadi" });
+        }
+
+        const [reading, listening, writingAi, writingScores] = await Promise.all([
+            Score.find({ student: student._id })
+                .sort({ createdAt: -1 })
+                .populate("test", "name"),
+            ScoreL.find({ student: student._id })
+                .sort({ createdAt: -1 })
+                .populate("test", "title"),
+            WritingResult.find({ userId: student._id }).sort({ createdAt: -1 }),
+            ScoreW.find({ student: student._id }).sort({ createdAt: -1 })
+        ]);
+
+        res.json({
+            student,
+            reading,
+            listening,
+            writingAi,
+            writingScores
+        });
+    } catch (err) {
+        console.error("Admin MOOC scores error:", err);
         res.status(500).json({ message: "Server xatosi" });
     }
 });

@@ -204,7 +204,7 @@ router.post('/login', async (req, res) => {
 // =====================
 router.get('/tests/last', authMiddleware, async (req, res) => {
     try {
-        if (req.user.role !== 'student')
+        if (!["student", "mooc"].includes(req.user.role))
             return res.status(403).json({ message: '🚫 Ruxsat yo‘q!' });
 
         const test = await Test.findOne().sort({ createdAt: -1 });
@@ -222,7 +222,7 @@ router.get('/tests/last', authMiddleware, async (req, res) => {
 // =====================
 router.post('/tests/:id/submit', authMiddleware, async (req, res) => {
     try {
-        if (req.user.role !== 'student')
+        if (!["student", "mooc"].includes(req.user.role))
             return res.status(403).json({ message: '🚫 Ruxsat yo‘q!' });
 
         const { answers } = req.body;
@@ -249,7 +249,7 @@ router.post('/tests/:id/submit', authMiddleware, async (req, res) => {
 // =====================
 router.get('/results', authMiddleware, async (req, res) => {
     try {
-        if (req.user.role !== 'student')
+        if (!["student", "mooc"].includes(req.user.role))
             return res.status(403).json({ message: '🚫 Ruxsat yo‘q!' });
 
         const results = await Score.find({ student: req.user.id })

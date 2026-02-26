@@ -1,15 +1,48 @@
 const router = require("express").Router();
 const Test = require("../models/Test");
 const sanitizeHtml = require("sanitize-html");
+const jwt = require("jsonwebtoken");
 
 const isValidMode = m => ["full", "part"].includes(m);
+const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
+
+const getRoleFromReq = (req) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return null;
+    const token = authHeader.startsWith("Bearer ")
+        ? authHeader.split(" ")[1]
+        : authHeader;
+    if (!token) return null;
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        return decoded?.role || null;
+    } catch (err) {
+        return null;
+    }
+};
+
+const normalizeAudience = (value) => (value === "mooc" ? "mooc" : "regular");
+
+const getAudienceFilter = (role) => {
+    if (role === "admin" || role === "teacher") return {};
+    if (role === "mooc") return { audience: "mooc" };
+    return { audience: { $ne: "mooc" } };
+};
+
+const canAccessAudience = (role, audience) => {
+    if (role === "admin" || role === "teacher") return true;
+    const normalized = normalizeAudience(audience);
+    if (role === "mooc") return normalized === "mooc";
+    return normalized !== "mooc";
+};
 
 /* =====================
    POST /test/upload
 ===================== */
 router.post("/upload", async (req, res) => {
     try {
-        const { name, mode, passages } = req.body;
+        const { name, mode, passages, audience } = req.body;
+        const normalizedAudience = normalizeAudience(audience);
 
         if (!name || !Array.isArray(passages) || passages.length !== 3) {
             return res.status(400).json({
@@ -46,7 +79,8 @@ router.post("/upload", async (req, res) => {
         const test = new Test({
             name: name.trim(),
             mode: isValidMode(mode) ? mode : "full",
-            passages: formattedPassages
+            passages: formattedPassages,
+            audience: normalizedAudience
         });
 
         await test.save();
@@ -63,7 +97,8 @@ router.post("/upload", async (req, res) => {
 router.get("/last", async (req, res) => {
     try {
         const { mode } = req.query;
-        const filter = {};
+        const role = getRoleFromReq(req);
+        const filter = { ...getAudienceFilter(role) };
         if (isValidMode(mode)) filter.mode = mode;
 
         const test = await Test.findOne(filter).sort({ createdAt: -1 });
@@ -83,7 +118,8 @@ router.get("/last", async (req, res) => {
 router.get("/all", async (req, res) => {
     try {
         const { mode, summary, page, limit } = req.query;
-        const filter = {};
+        const role = getRoleFromReq(req);
+        const filter = { ...getAudienceFilter(role) };
         if (isValidMode(mode)) filter.mode = mode;
 
         let query = Test.find(filter).sort({ createdAt: -1 });
@@ -118,6 +154,10 @@ router.get("/:id", async (req, res) => {
         const test = await Test.findById(req.params.id);
         if (!test) {
             return res.status(404).json({ message: "Test topilmadi" });
+        }
+        const role = getRoleFromReq(req);
+        if (!canAccessAudience(role, test.audience)) {
+            return res.status(403).json({ message: "Ruxsat yo'q" });
         }
         return res.json(test);
     } catch (err) {

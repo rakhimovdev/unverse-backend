@@ -4,6 +4,39 @@ const multer = require("multer");
 const Writing = require("../models/writing");
 const Response = require("../models/Response");
 const User = require("../models/Student");
+const jwt = require("jsonwebtoken");
+
+const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
+
+const getRoleFromReq = (req) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return null;
+  const token = authHeader.startsWith("Bearer ")
+    ? authHeader.split(" ")[1]
+    : authHeader;
+  if (!token) return null;
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    return decoded?.role || null;
+  } catch (err) {
+    return null;
+  }
+};
+
+const normalizeAudience = (value) => (value === "mooc" ? "mooc" : "regular");
+
+const getAudienceFilter = (role) => {
+  if (role === "admin" || role === "teacher") return {};
+  if (role === "mooc") return { audience: "mooc" };
+  return { audience: { $ne: "mooc" } };
+};
+
+const canAccessAudience = (role, audience) => {
+  if (role === "admin" || role === "teacher") return true;
+  const normalized = normalizeAudience(audience);
+  if (role === "mooc") return normalized === "mooc";
+  return normalized !== "mooc";
+};
 
 // -------------------- MULTER --------------------
 const storage = multer.memoryStorage();
@@ -17,6 +50,8 @@ router.post("/upload", upload.single("image"), async (req, res) => {
   try {
     console.log("BODY:", req.body);
     console.log("FILE:", req.file);
+
+    const normalizedAudience = normalizeAudience(req.body.audience);
 
     const hasCombinedFields = ["task1Topic", "task1Text", "task2Topic", "task2Text"].some(
       (key) => Object.prototype.hasOwnProperty.call(req.body, key)
@@ -50,7 +85,8 @@ router.post("/upload", upload.single("image"), async (req, res) => {
         task2Topic,
         task2Text,
         topic: task1Topic,
-        image: imageData
+        image: imageData,
+        audience: normalizedAudience
       });
 
       await newWriting.save();
@@ -75,7 +111,8 @@ router.post("/upload", upload.single("image"), async (req, res) => {
       topic: req.body.topic,
       task,
       taskText,
-      image: req.file ? imageData : ""
+      image: req.file ? imageData : "",
+      audience: normalizedAudience
     });
 
     await newWriting.save();
@@ -103,10 +140,12 @@ router.delete("/delete/:id", async (req, res) => {
 // -------------------- GET: All writings --------------------
 router.get("/all", async (req, res) => {
   try {
+    const role = getRoleFromReq(req);
     const tests = await Writing.find({
       task1Topic: { $exists: true, $ne: "" },
       task2Topic: { $exists: true, $ne: "" },
-      task2Text: { $exists: true, $ne: "" }
+      task2Text: { $exists: true, $ne: "" },
+      ...getAudienceFilter(role)
     }).select("_id task1Topic task2Topic topic");
     res.json(tests);
   } catch (err) {
@@ -121,6 +160,10 @@ router.get("/:id", async (req, res) => {
     const writing = await Writing.findById(req.params.id);
     if (!writing) {
       return res.status(404).json({ error: "Not found" });
+    }
+    const role = getRoleFromReq(req);
+    if (!canAccessAudience(role, writing.audience)) {
+      return res.status(403).json({ message: "Ruxsat yo'q" });
     }
     res.json(writing);
   } catch (error) {

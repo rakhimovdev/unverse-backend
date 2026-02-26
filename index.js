@@ -1,3 +1,4 @@
+require("dotenv").config();
 const express = require("express");
 const app = express();
 const mongoose = require("mongoose");
@@ -14,6 +15,8 @@ const ScoreL = require("./routes/Scorel");
 const Writing = require("./routes/writing");
 const ScoreW = require("./routes/ScoreW");
 const Admin = require("./routes/Admin");
+const AiWriting = require("./routes/AiWriting");
+const WritingAi = require("./routes/WritingAi");
 
 // 1. Avval CORS
 const allowedOrigins = [
@@ -59,6 +62,8 @@ app.use("/scorel", ScoreL);
 app.use("/posts", Writing);
 app.use("/scorew", ScoreW);   // writing route uchun
 app.use("/admin", Admin);
+app.use("/ai", AiWriting);
+app.use("/api/writing", WritingAi);
 
 // 6. Server
 const PORT = process.env.PORT || 5000;

@@ -88,13 +88,19 @@ router.post("/register", async (req, res) => {
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
+        if (role === "mooc") {
+            return res.status(403).json({ message: "Mooc accountni faqat admin qo'sha oladi!" });
+        }
+
+        const normalizedRole = role === "admin" ? "admin" : "teacher";
+
         const user = new User({
             email,
             name,
             lastname,
             username,
             password: hashedPassword,
-            role: role || "teacher",
+            role: normalizedRole,
         });
 
         await user.save();

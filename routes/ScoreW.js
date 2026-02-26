@@ -34,7 +34,7 @@ router.post("/response", auth, async (req, res) => {
         }
 
         const user = await User.findById(userId);
-        if (!user || user.role !== "student") {
+        if (!user || !["student", "mooc"].includes(user.role)) {
             return res.status(403).json({ message: "Faqat student javob yubora oladi!" });
         }
 
@@ -174,7 +174,7 @@ router.get("/all", auth, async (req, res) => {
 router.get("/my", auth, async (req, res) => {
     try {
         const user = await User.findById(req.user.id);
-        if (!user || user.role !== "student") {
+        if (!user || !["student", "mooc"].includes(user.role)) {
             return res.status(403).json({ message: "Faqat student ko‘ra oladi!" });
         }
 

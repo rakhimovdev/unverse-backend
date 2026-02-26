@@ -20,6 +20,7 @@ const PartSchema = new mongoose.Schema(
     testText: { type: String, default: "" },
     questions: { type: [QuestionSchema], default: [] },
     imagePath: { type: String, default: null },
+    audioPath: { type: String, default: null },
   },
   { _id: false }
 );
@@ -37,6 +38,12 @@ const ListeningSchema = new mongoose.Schema(
     imagePath: { type: String, default: null },
 
     student: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+
+    audience: {
+      type: String,
+      enum: ["regular", "mooc"],
+      default: "regular"
+    }
   },
   { timestamps: true }
 );

@@ -6,7 +6,7 @@ const StudentSchema = new mongoose.Schema({
     email: { type: String, required: true, unique: true },
     username: { type: String, required: true, unique: true },
     password: { type: String, required: true }, // parol kiritilmagan edi
-    role: { type: String, enum: ['student', 'teacher'], default: 'student' }, // 🔑 qo‘shildi
+    role: { type: String, enum: ['student', 'teacher', 'mock_user', 'mooc'], default: 'student' }, // 🔑 qo‘shildi
     tests: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Test' }]
 }, { timestamps: true });
 

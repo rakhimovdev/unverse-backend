@@ -47,6 +47,12 @@ const TestSchema = new mongoose.Schema(
         duration: {
             type: Number, // daqiqalarda
             default: 60
+        },
+
+        audience: {
+            type: String,
+            enum: ["regular", "mooc"],
+            default: "regular"
         }
     },
     { timestamps: true }

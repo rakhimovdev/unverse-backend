@@ -20,7 +20,7 @@ router.post("/add", auth, async (req, res) => {
         }
 
         const user = await User.findById(req.user.id);
-        if (!user || user.role !== "student") {
+        if (!user || !["student", "mooc"].includes(user.role)) {
             return res.status(403).json({ message: "Faqat student score qo‘shishi mumkin!" });
         }
 
@@ -94,7 +94,7 @@ router.delete("/delete/:id", auth, async (req, res) => {
         }
 
         const user = await User.findById(req.user.id);
-        if (user.role === "student" && score.student.toString() !== req.user.id) {
+        if (["student", "mooc"].includes(user.role) && score.student.toString() !== req.user.id) {
             return res.status(403).json({
                 message: "Siz faqat o‘zingizning natijangizni o‘chira olasiz!",
             });
