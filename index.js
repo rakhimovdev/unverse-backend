@@ -21,6 +21,7 @@ const WritingAi = require("./routes/WritingAi");
 // 1. Avval CORS
 const allowedOrigins = [
     "https://unversels.vercel.app",
+    "https://unverse-frontend.vercel.app",
     "http://localhost:3000"
 ];
 
