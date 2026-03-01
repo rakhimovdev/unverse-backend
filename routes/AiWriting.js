@@ -3,6 +3,7 @@ const OpenAI = require("openai");
 const router = express.Router();
 
 const auth = require("../middleware/auth");
+const WritingResult = require("../models/WritingResult");
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
@@ -65,6 +66,12 @@ router.post("/writing/grade", auth, async (req, res) => {
             });
         }
 
+        if (!["task1", "task2"].includes(task)) {
+            return res.status(400).json({
+                message: "task task1 yoki task2 bo'lishi kerak"
+            });
+        }
+
         const input = buildPrompt({
             essay: essay.trim(),
             task,
@@ -87,19 +94,82 @@ router.post("/writing/grade", auth, async (req, res) => {
         });
 
         // 🔥 ENG MUHIM JOY
-        const result = response.output_parsed;
+        let result = response.output_parsed;
+
+        // fallback (🔥 MUHIM)
+        if (!result) {
+            try {
+                const text =
+                    response?.output?.[0]?.content?.[0]?.text ||
+                    response?.output_text;
+
+                if (text) {
+                    result = JSON.parse(text);
+                }
+            } catch (e) {
+                console.log("JSON parse error:", e);
+            }
+        }
 
         if (!result) {
-            console.log(response);
             return res.status(500).json({
                 message: "AI javobi parse bo'lmadi"
             });
         }
 
-        return res.json(result);
+        await WritingResult.create({
+            userId: req.user.id,
+            essayText: essay.trim(),
+            taskType: task,
+            result
+        });
+
+        return res.json({
+            success: true,
+            result
+        });
 
     } catch (err) {
         console.error("AI writing grade error:", err);
+        return res.status(500).json({
+            message: "Server xatosi"
+        });
+    }
+});
+
+router.get("/writing/results", auth, async (req, res) => {
+    try {
+        if (!ALLOWED_ROLES.has(req.user?.role)) {
+            return res.status(403).json({ message: "Ruxsat yo'q" });
+        }
+
+        const filter = {};
+
+        if (req.user.role !== "admin") {
+            filter.userId = req.user.id;
+        }
+
+        const results = await WritingResult.find(filter)
+            .sort({ createdAt: -1 })
+            .lean();
+
+        for (const r of results) {
+            if (r.result) {
+                if (r.result.estimated_band == null && r.result.band_score != null) {
+                    r.result.estimated_band = r.result.band_score;
+                }
+                if (r.result.band_score == null && r.result.estimated_band != null) {
+                    r.result.band_score = r.result.estimated_band;
+                }
+            }
+        }
+
+        return res.json({
+            success: true,
+            result: results
+        });
+    } catch (err) {
+        console.error("AI writing results error:", err);
         return res.status(500).json({
             message: "Server xatosi"
         });

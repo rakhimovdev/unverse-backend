@@ -102,6 +102,11 @@ router.post("/ai-check", auth, async (req, res) => {
             });
         }
 
+        // Normalize to satisfy WritingResult schema + UI expectations
+        if (result.estimated_band != null && result.band_score == null) {
+            result.band_score = result.estimated_band;
+        }
+
         // SAVE TO DB
         await WritingResult.create({
             userId: req.user.id,
@@ -137,12 +142,7 @@ router.get("/ai-results", auth, async (req, res) => {
         let userId = null;
 
         if (role === "admin") {
-            userId = req.query.userId;
-            if (!userId) {
-                return res.status(400).json({
-                    message: "userId kerak"
-                });
-            }
+            userId = req.query.userId || null;
         } else if (role === "mock_user" || role === "mooc") {
             userId = req.user.id;
         } else {
@@ -151,8 +151,22 @@ router.get("/ai-results", auth, async (req, res) => {
             });
         }
 
-        const results = await WritingResult.find({ userId })
-            .sort({ createdAt: -1 });
+        const filter = userId ? { userId } : {};
+
+        const results = await WritingResult.find(filter)
+            .sort({ createdAt: -1 })
+            .lean();
+
+        for (const r of results) {
+            if (r.result) {
+                if (r.result.estimated_band == null && r.result.band_score != null) {
+                    r.result.estimated_band = r.result.band_score;
+                }
+                if (r.result.band_score == null && r.result.estimated_band != null) {
+                    r.result.band_score = r.result.estimated_band;
+                }
+            }
+        }
 
         return res.json(results);
 

@@ -187,9 +187,22 @@ router.get("/mooc-students/:id/scores", auth, adminOnly, async (req, res) => {
             ScoreL.find({ student: student._id })
                 .sort({ createdAt: -1 })
                 .populate("test", "title"),
-            WritingResult.find({ userId: student._id }).sort({ createdAt: -1 }),
+            WritingResult.find({ userId: student._id })
+                .sort({ createdAt: -1 })
+                .lean(),
             ScoreW.find({ student: student._id }).sort({ createdAt: -1 })
         ]);
+
+        for (const r of writingAi) {
+            if (r.result) {
+                if (r.result.estimated_band == null && r.result.band_score != null) {
+                    r.result.estimated_band = r.result.band_score;
+                }
+                if (r.result.band_score == null && r.result.estimated_band != null) {
+                    r.result.band_score = r.result.estimated_band;
+                }
+            }
+        }
 
         res.json({
             student,
