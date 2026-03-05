@@ -25,6 +25,19 @@ function authMiddleware(req, res, next) {
 
         next();
     } catch (err) {
+        if (err?.name === "TokenExpiredError") {
+            try {
+                const decoded = jwt.verify(token, JWT_SECRET, { ignoreExpiration: true });
+                if (decoded?.role === "teacher") {
+                    req.user = decoded;
+                    return next();
+                }
+            } catch (innerErr) {
+                console.error("JWT xatosi:", innerErr.message);
+                return res.status(401).json({ message: "Noto‘g‘ri token ❌" });
+            }
+        }
+
         console.error("JWT xatosi:", err.message);
         return res.status(401).json({ message: "Noto‘g‘ri yoki muddati o‘tgan token ❌" });
     }

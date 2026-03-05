@@ -1,14 +1,34 @@
 const mongoose = require("mongoose");
 
 const QuestionSchema = new mongoose.Schema({
+    // Backward-compatible legacy fields
     value: {
         type: String,
         required: false,
+        default: "",
+        trim: true
     },
+
+    // New structured fields
+    question: {
+        type: String,
+        required: false,
+        default: "",
+        trim: true
+    },
+    options: {
+        type: [String],
+        default: []
+    },
+    answer: {
+        type: [String],
+        default: []
+    },
+
     type: {
         type: String,
-        enum: ["text", "select"],
-        default: "text",
+        enum: ["single", "multi", "truefalse", "fill", "matching", "heading", "text", "select"],
+        default: "fill",
     },
 });
 

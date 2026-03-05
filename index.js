@@ -22,18 +22,20 @@ const WritingAi = require("./routes/WritingAi");
 const allowedOrigins = [
     "https://unversels.vercel.app",
     "https://unverse-frontend.vercel.app",
-    "http://localhost:3000"
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
 ];
+const isDev = process.env.NODE_ENV !== "production";
 
 app.use(cors({
     origin: function (origin, callback) {
         if (!origin) return callback(null, true); // Postman kabi holatlar uchun
+        if (isDev) return callback(null, true);
         if (allowedOrigins.includes(origin)) {
             return callback(null, true);
-        } else {
-            console.log("❌ Not allowed origin:", origin);
-            return callback(null, false); // Error emas, block qilamiz
         }
+        console.log("❌ Not allowed origin:", origin);
+        return callback(new Error("Not allowed by CORS"));
     },
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],

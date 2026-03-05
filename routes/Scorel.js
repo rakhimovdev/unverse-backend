@@ -5,6 +5,20 @@ const User = require("../models/User");
 const auth = require("../middleware/auth");
 const Listening = require("../models/Testl"); // Listening model
 
+const normalizeStudentNames = (user) => {
+    const safe = (value) => (typeof value === "string" ? value.trim() : "");
+    const name = safe(user?.name);
+    const lastname = safe(user?.lastname);
+    const username = safe(user?.username);
+    const email = safe(user?.email);
+    const emailPrefix = email.includes("@") ? email.split("@")[0] : "";
+
+    return {
+        studentName: name || username || emailPrefix || "Unknown",
+        studentLastname: lastname || "Student",
+    };
+};
+
 // Score qo‘shish (student faqat o‘zi uchun)
 router.post("/add", auth, async (req, res) => {
     try {
@@ -24,18 +38,22 @@ router.post("/add", auth, async (req, res) => {
             return res.status(403).json({ message: "Faqat student score qo‘shishi mumkin!" });
         }
 
+        const { studentName, studentLastname } = normalizeStudentNames(user);
+
         // Agar avval score bo‘lsa, yangilaymiz
         let existing = await ScoreL.findOne({ student: req.user.id, test: listeningId });
         if (existing) {
             existing.score = score;
+            existing.studentName = studentName;
+            existing.studentLastname = studentLastname;
             await existing.save();
             return res.json({ message: "Score yangilandi ✅", score: existing });
         }
 
         const newScore = new ScoreL({
             student: req.user.id,
-            studentName: user.name,
-            studentLastname: user.lastname,
+            studentName,
+            studentLastname,
             test: listening._id,
             testName: listening.title,
             score,

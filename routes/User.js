@@ -35,6 +35,18 @@ function authMiddleware(req, res, next) {
         req.user = { id: decoded.id, username: decoded.username, role: decoded.role };
         next();
     } catch (err) {
+        if (err?.name === "TokenExpiredError") {
+            try {
+                const decoded = jwt.verify(token, process.env.JWT_SECRET, { ignoreExpiration: true });
+                if (decoded?.role === "teacher") {
+                    req.user = { id: decoded.id, username: decoded.username, role: decoded.role };
+                    return next();
+                }
+            } catch (innerErr) {
+                return res.status(401).json({ message: " Token yaroqsiz!" });
+            }
+        }
+
         return res.status(401).json({ message: " Token yaroqsiz yoki muddati tugagan!" });
     }
 }
@@ -81,9 +93,12 @@ router.post("/register", async (req, res) => {
             return res.status(400).json({ message: "Invalid request" });
         }
 
-        const existing = await User.findOne({ username });
+        const existing = await User.findOne({
+            $or: [{ username }, { email }]
+        });
         if (existing) {
-            return res.status(400).json({ message: " Username allaqachon mavjud!" });
+            const field = existing.username === username ? "Username" : "Email";
+            return res.status(400).json({ message: `${field} allaqachon mavjud!` });
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
@@ -105,6 +120,10 @@ router.post("/register", async (req, res) => {
 
         await user.save();
 
+        if (!process.env.JWT_SECRET) {
+            return res.status(500).json({ message: "JWT_SECRET sozlanmagan" });
+        }
+
         // Token yaratish
         const token = jwt.sign(
             { id: user._id, username: user.username, role: user.role },
@@ -124,6 +143,10 @@ router.post("/register", async (req, res) => {
         });
     } catch (error) {
         console.error("Register error:", error);
+        if (error?.code === 11000) {
+            const dupField = Object.keys(error.keyPattern || {})[0] || "Field";
+            return res.status(400).json({ message: `${dupField} allaqachon mavjud!` });
+        }
         res.status(500).json({ message: "Internal Server Error" });
     }
 });

@@ -5,10 +5,10 @@ const router = express.Router();
 const auth = require("../middleware/auth");
 const WritingResult = require("../models/WritingResult");
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
-const client = new OpenAI({ apiKey: OPENAI_API_KEY });
+const client = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
 const ALLOWED_ROLES = new Set(["admin", "mooc", "mock_user"]);
 
@@ -27,6 +27,20 @@ const jsonSchema = {
         }
     },
     required: ["band_score", "grammar_feedback", "improvement_tips"]
+};
+
+const roundToHalfBand = (value) => {
+    if (value == null || Number.isNaN(Number(value))) return null;
+    return Math.round(Number(value) * 2) / 2;
+};
+
+const calculateOverallBand = (task1Band, task2Band) => {
+    const t1 = Number(task1Band);
+    const t2 = Number(task2Band);
+    if (!Number.isFinite(t1) || !Number.isFinite(t2)) return null;
+
+    const weighted = (t1 + 2 * t2) / 3;
+    return roundToHalfBand(weighted);
 };
 
 const buildPrompt = ({ essay, task, prompt, language }) => {
@@ -58,7 +72,7 @@ router.post("/writing/grade", auth, async (req, res) => {
             });
         }
 
-        const { essay, task, prompt, language } = req.body || {};
+        const { essay, task, prompt, language, writingId } = req.body || {};
 
         if (!essay || typeof essay !== "string" || !essay.trim()) {
             return res.status(400).json({
@@ -117,16 +131,61 @@ router.post("/writing/grade", auth, async (req, res) => {
             });
         }
 
-        await WritingResult.create({
+        const saved = await WritingResult.create({
             userId: req.user.id,
+            writingId: writingId || null,
             essayText: essay.trim(),
             taskType: task,
             result
         });
 
+        let overall = null;
+        const filter = { userId: req.user.id };
+        if (writingId) filter.writingId = writingId;
+
+        const [task1Result, task2Result] = await Promise.all([
+            WritingResult.findOne({ ...filter, taskType: "task1" })
+                .sort({ createdAt: -1 })
+                .lean(),
+            WritingResult.findOne({ ...filter, taskType: "task2" })
+                .sort({ createdAt: -1 })
+                .lean()
+        ]);
+
+        if (task1Result?.result?.band_score != null && task2Result?.result?.band_score != null) {
+            const overallBand = calculateOverallBand(
+                task1Result.result.band_score,
+                task2Result.result.band_score
+            );
+
+            if (overallBand != null) {
+                if (writingId) {
+                    overall = await WritingResult.findOneAndUpdate(
+                        { userId: req.user.id, writingId, taskType: "overall" },
+                        {
+                            $set: {
+                                essayText: "",
+                                result: {
+                                    band_score: overallBand,
+                                    grammar_feedback: [],
+                                    improvement_tips: []
+                                }
+                            }
+                        },
+                        { upsert: true, new: true }
+                    );
+                } else {
+                    overall = {
+                        band_score: overallBand
+                    };
+                }
+            }
+        }
+
         return res.json({
             success: true,
-            result
+            result,
+            overall
         });
 
     } catch (err) {
