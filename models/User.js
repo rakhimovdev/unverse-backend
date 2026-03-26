@@ -7,6 +7,7 @@ const UserSchema = new mongoose.Schema({
     username: { type: String, required: true, unique: true },
     password: { type: String, required: true },
     role: { type: String, enum: ["student", "teacher", "admin", "mock_user", "mooc"], default: "student" },
+    studentType: { type: String, enum: ["insider", "outsider"], default: null },
     teacher: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     timeSlot: { type: mongoose.Schema.Types.ObjectId, ref: "TimeSlot", default: null },
     timeSlots: [{ type: mongoose.Schema.Types.ObjectId, ref: "TimeSlot" }]

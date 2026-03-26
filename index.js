@@ -4,10 +4,11 @@ const app = express();
 const mongoose = require("mongoose");
 const cors = require("cors");
 const path = require("path");
+const UserModel = require("./models/User");
 
 // Routers
 const Student = require("./routes/Student");
-const User = require("./routes/User");
+const UserRouter = require("./routes/User");
 const Test = require("./routes/Test");
 const Score = require("./routes/Score");
 const Testl = require("./routes/Testl");
@@ -52,12 +53,33 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 // 4. Mongo ulanish
 const url = "mongodb+srv://rahimovdev1:universe@cluster0.gwybjlk.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
 mongoose.connect(url)
-    .then(() => console.log("✅ MongoDBga ulandi"))
+    .then(async () => {
+        console.log("✅ MongoDBga ulandi");
+
+        try {
+            const result = await UserModel.updateMany(
+                {
+                    role: "student",
+                    $or: [
+                        { studentType: { $exists: false } },
+                        { studentType: null },
+                        { studentType: "" }
+                    ]
+                },
+                { $set: { studentType: "insider" } }
+            );
+            if (result?.modifiedCount) {
+                console.log(`✅ ${result.modifiedCount} student insider qilib yangilandi`);
+            }
+        } catch (err) {
+            console.error("❌ StudentType migratsiya xatosi:", err);
+        }
+    })
     .catch((error) => console.error("❌ MongoDB ulanishda xato:", error));
 
 // 5. Routes
 app.use("/student", Student);
-app.use("/user", User);
+app.use("/user", UserRouter);
 app.use("/test", Test);
 app.use("/score", Score);
 app.use("/testl", Testl);   // 🔥 BU JOYNI QO‘SHDIM

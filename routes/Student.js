@@ -95,49 +95,58 @@ router.post('/register', async (req, res) => {
             timeSlotId,
             timeSlotIds,
             timeGroup,
-            time
+            time,
+            studentType
         } = req.body;
 
-        if (!teacherId || !(timeSlotId || timeSlotIds || (timeGroup && time))) {
-            return res.status(400).json({ message: '❌ Teacher va vaqtni tanlash kerak' });
+        if (!email || !name || !lastname || !username || !password) {
+            return res.status(400).json({ message: '❌ Kerakli maʼlumotlar toʻliq emas' });
         }
 
         const existingUser = await User.findOne({ $or: [{ username }, { email }] });
         if (existingUser)
             return res.status(400).json({ message: '❌ Username yoki email allaqachon mavjud' });
 
-        const teacher = await User.findOne({ _id: teacherId, role: "teacher" });
-        if (!teacher) {
-            return res.status(400).json({ message: '❌ Teacher topilmadi' });
-        }
-
+        const isOutsider = String(studentType || "").toLowerCase() === "outsider";
+        let teacher = null;
         let selectedSlots = [];
 
-        if (Array.isArray(timeSlotIds) && timeSlotIds.length) {
-            selectedSlots = await TimeSlot.find({ _id: { $in: timeSlotIds } });
-        } else if (timeSlotId) {
-            const single = await TimeSlot.findById(timeSlotId);
-            if (single) selectedSlots = [single];
-        } else if (timeGroup && time) {
-            const dayList =
-                timeGroup === "juft"
-                    ? ["Seshanba", "Payshanba", "Shanba"]
-                    : timeGroup === "toq"
-                        ? ["Dushanba", "Chorshanba", "Juma"]
-                        : [];
-            selectedSlots = await TimeSlot.find({
-                teacher: teacher._id,
-                day: { $in: dayList },
-                time: String(time).trim()
-            });
-        }
+        if (!isOutsider) {
+            if (!teacherId || !(timeSlotId || timeSlotIds || (timeGroup && time))) {
+                return res.status(400).json({ message: '❌ Teacher va vaqtni tanlash kerak' });
+            }
 
-        if (!selectedSlots.length) {
-            return res.status(400).json({ message: '❌ Tanlangan vaqt topilmadi' });
-        }
+            teacher = await User.findOne({ _id: teacherId, role: "teacher" });
+            if (!teacher) {
+                return res.status(400).json({ message: '❌ Teacher topilmadi' });
+            }
 
-        if (selectedSlots.some((slot) => String(slot.teacher) !== String(teacher._id))) {
-            return res.status(400).json({ message: '❌ Bu vaqt tanlangan teacherga tegishli emas' });
+            if (Array.isArray(timeSlotIds) && timeSlotIds.length) {
+                selectedSlots = await TimeSlot.find({ _id: { $in: timeSlotIds } });
+            } else if (timeSlotId) {
+                const single = await TimeSlot.findById(timeSlotId);
+                if (single) selectedSlots = [single];
+            } else if (timeGroup && time) {
+                const dayList =
+                    timeGroup === "juft"
+                        ? ["Seshanba", "Payshanba", "Shanba"]
+                        : timeGroup === "toq"
+                            ? ["Dushanba", "Chorshanba", "Juma"]
+                            : [];
+                selectedSlots = await TimeSlot.find({
+                    teacher: teacher._id,
+                    day: { $in: dayList },
+                    time: String(time).trim()
+                });
+            }
+
+            if (!selectedSlots.length) {
+                return res.status(400).json({ message: '❌ Tanlangan vaqt topilmadi' });
+            }
+
+            if (selectedSlots.some((slot) => String(slot.teacher) !== String(teacher._id))) {
+                return res.status(400).json({ message: '❌ Bu vaqt tanlangan teacherga tegishli emas' });
+            }
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
@@ -149,7 +158,8 @@ router.post('/register', async (req, res) => {
             username,
             password: hashedPassword,
             role: "student",
-            teacher: teacher._id,
+            studentType: isOutsider ? "outsider" : "insider",
+            teacher: teacher ? teacher._id : null,
             timeSlot: selectedSlots[0]?._id || null,
             timeSlots: selectedSlots.map((s) => s._id)
         });

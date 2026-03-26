@@ -251,7 +251,14 @@ router.get(
     roleMiddleware("teacher"),
     async (req, res) => {
         try {
-            const results = await Score.find()
+            const students = await User.find({ role: "student", teacher: req.user.id }).select("_id");
+            const studentIds = students.map((s) => s._id);
+
+            if (studentIds.length === 0) {
+                return res.json([]);
+            }
+
+            const results = await Score.find({ student: { $in: studentIds } })
                 .populate("student", "username email")
                 .populate("test", "testText");
 
