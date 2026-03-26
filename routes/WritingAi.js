@@ -13,6 +13,20 @@ const client = OPENAI_API_KEY
     : null;
 
 const ALLOWED_ROLES = new Set(["admin", "mock_user", "mooc"]);
+const LIMITS_BY_ROLE = {
+    mock_user: 10,
+    mooc: 1,
+    student: 1
+};
+
+const getLimitForRole = (role) => {
+    if (role === "admin") return null;
+    return LIMITS_BY_ROLE[role] ?? 1;
+};
+
+const getLimitMessage = (role) => (
+    role === "mock_user" ? "limitingiz tugadi" : "limitingiz tugagan"
+);
 
 const RESPONSE_SCHEMA = {
     type: "object",
@@ -73,6 +87,20 @@ router.post("/ai-check", auth, async (req, res) => {
             return res.status(400).json({
                 message: "taskType task1 yoki task2 bo'lishi kerak"
             });
+        }
+
+        const limit = getLimitForRole(req.user?.role);
+        if (limit != null) {
+            const limitMessage = getLimitMessage(req.user?.role);
+            const usedCount = await WritingResult.countDocuments({
+                userId: req.user.id,
+                taskType: { $in: ["task1", "task2"] },
+                writingId: null
+            });
+
+            if (usedCount >= limit) {
+                return res.status(429).json({ message: limitMessage });
+            }
         }
 
         const prompt = buildPrompt({ essayText, taskType });

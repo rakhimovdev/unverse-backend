@@ -11,6 +11,20 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const client = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
 const ALLOWED_ROLES = new Set(["admin", "mooc", "mock_user"]);
+const LIMITS_BY_ROLE = {
+    mock_user: 10,
+    mooc: 1,
+    student: 1
+};
+
+const getLimitForRole = (role) => {
+    if (role === "admin") return null;
+    return LIMITS_BY_ROLE[role] ?? 1;
+};
+
+const getLimitMessage = (role) => (
+    role === "mock_user" ? "limitingiz tugadi" : "limitingiz tugagan"
+);
 
 const jsonSchema = {
     type: "object",
@@ -84,6 +98,49 @@ router.post("/writing/grade", auth, async (req, res) => {
             return res.status(400).json({
                 message: "task task1 yoki task2 bo'lishi kerak"
             });
+        }
+
+        const limit = getLimitForRole(req.user?.role);
+        if (limit != null) {
+            const limitMessage = getLimitMessage(req.user?.role);
+            const userId = req.user.id;
+            const taskType = task;
+
+            const alreadyCheckedTask = await WritingResult.exists({
+                userId,
+                writingId: writingId || null,
+                taskType
+            });
+
+            if (alreadyCheckedTask) {
+                return res.status(429).json({ message: limitMessage });
+            }
+
+            if (writingId) {
+                const usedWritingIds = await WritingResult.distinct("writingId", {
+                    userId,
+                    taskType: { $in: ["task1", "task2"] },
+                    writingId: { $ne: null }
+                });
+
+                const alreadyUsedThisWriting = usedWritingIds.some(
+                    (id) => String(id) === String(writingId)
+                );
+
+                if (!alreadyUsedThisWriting && usedWritingIds.length >= limit) {
+                    return res.status(429).json({ message: limitMessage });
+                }
+            } else {
+                const usedCount = await WritingResult.countDocuments({
+                    userId,
+                    taskType: { $in: ["task1", "task2"] },
+                    writingId: null
+                });
+
+                if (usedCount >= limit) {
+                    return res.status(429).json({ message: limitMessage });
+                }
+            }
         }
 
         const input = buildPrompt({
