@@ -127,12 +127,14 @@ router.post("/mooc-students", auth, adminOnly, async (req, res) => {
 
         const hashed = await bcrypt.hash(password, 10);
         const user = new User({
+            fullname: [name, lastname].filter(Boolean).join(" ").trim(),
             email,
             name,
             lastname,
             username,
             password: hashed,
-            role: "mooc"
+            role: "mooc",
+            isVerified: true
         });
 
         await user.save();

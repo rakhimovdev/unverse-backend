@@ -2,6 +2,10 @@ const express = require("express");
 const OpenAI = require("openai");
 const auth = require("../middleware/auth");
 const WritingResult = require("../models/WritingResult");
+const {
+    SINGLE_AI_CHECK_LIMIT,
+    checkSingleAiAccess
+} = require("../utils/aiWritingLimit");
 
 const router = express.Router();
 
@@ -11,22 +15,6 @@ const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const client = OPENAI_API_KEY
     ? new OpenAI({ apiKey: OPENAI_API_KEY })
     : null;
-
-const ALLOWED_ROLES = new Set(["admin", "mock_user", "mooc"]);
-const LIMITS_BY_ROLE = {
-    mock_user: 10,
-    mooc: 1,
-    student: 1
-};
-
-const getLimitForRole = (role) => {
-    if (role === "admin") return null;
-    return LIMITS_BY_ROLE[role] ?? 1;
-};
-
-const getLimitMessage = (role) => (
-    role === "mock_user" ? "limitingiz tugadi" : "limitingiz tugagan"
-);
 
 const RESPONSE_SCHEMA = {
     type: "object",
@@ -62,11 +50,6 @@ ${essayText.trim()}
 
 router.post("/ai-check", auth, async (req, res) => {
     try {
-        // ROLE CHECK
-        if (!ALLOWED_ROLES.has(req.user?.role)) {
-            return res.status(403).json({ message: "Ruxsat yo'q" });
-        }
-
         // API KEY CHECK
         if (!OPENAI_API_KEY) {
             return res.status(500).json({
@@ -89,18 +72,14 @@ router.post("/ai-check", auth, async (req, res) => {
             });
         }
 
-        const limit = getLimitForRole(req.user?.role);
-        if (limit != null) {
-            const limitMessage = getLimitMessage(req.user?.role);
-            const usedCount = await WritingResult.countDocuments({
-                userId: req.user.id,
-                taskType: { $in: ["task1", "task2"] },
-                writingId: null
-            });
+        const access = await checkSingleAiAccess({
+            userId: req.user.id,
+            taskType,
+            limit: SINGLE_AI_CHECK_LIMIT
+        });
 
-            if (usedCount >= limit) {
-                return res.status(429).json({ message: limitMessage });
-            }
+        if (!access.allowed) {
+            return res.status(429).json({ message: access.message });
         }
 
         const prompt = buildPrompt({ essayText, taskType });
@@ -166,20 +145,12 @@ router.post("/ai-check", auth, async (req, res) => {
 
 router.get("/ai-results", auth, async (req, res) => {
     try {
-        const role = req.user?.role;
-        let userId = null;
-
-        if (role === "admin") {
-            userId = req.query.userId || null;
-        } else if (role === "mock_user" || role === "mooc") {
-            userId = req.user.id;
-        } else {
-            return res.status(403).json({
-                message: "Ruxsat yo'q"
-            });
-        }
-
-        const filter = userId ? { userId } : {};
+        const filter = {
+            userId:
+                req.user?.role === "admin" && req.query.userId
+                    ? req.query.userId
+                    : req.user.id
+        };
 
         const results = await WritingResult.find(filter)
             .sort({ createdAt: -1 })

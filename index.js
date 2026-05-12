@@ -18,13 +18,20 @@ const ScoreW = require("./routes/ScoreW");
 const Admin = require("./routes/Admin");
 const AiWriting = require("./routes/AiWriting");
 const WritingAi = require("./routes/WritingAi");
+const AuthRouter = require("./routes/Auth");
 
 // 1. Avval CORS
+const configuredOrigins = String(process.env.FRONTEND_URLS || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
 const allowedOrigins = [
     "https://unversels.vercel.app",
     "https://unverse-frontend.vercel.app",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    ...configuredOrigins
 ];
 const isDev = process.env.NODE_ENV !== "production";
 
@@ -50,34 +57,51 @@ app.use(express.urlencoded({ extended: true }));
 // 3. Static files (uploads)
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// 4. Mongo ulanish
-const url = "mongodb+srv://rahimovdev1:universe@cluster0.gwybjlk.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0";
+// 4. Required env vars
+const url = process.env.MONGO_URI;
+
+if (!url || !process.env.JWT_SECRET) {
+    console.error("❌ Required environment variables are missing. Check MONGO_URI and JWT_SECRET.");
+    process.exit(1);
+}
+
 mongoose.connect(url)
     .then(async () => {
         console.log("✅ MongoDBga ulandi");
 
         try {
-            const result = await UserModel.updateMany(
-                {
-                    role: "student",
-                    $or: [
-                        { studentType: { $exists: false } },
-                        { studentType: null },
-                        { studentType: "" }
-                    ]
-                },
-                { $set: { studentType: "insider" } }
-            );
-            if (result?.modifiedCount) {
-                console.log(`✅ ${result.modifiedCount} student insider qilib yangilandi`);
+            const [studentTypeResult, verificationResult] = await Promise.all([
+                UserModel.updateMany(
+                    {
+                        role: "student",
+                        $or: [
+                            { studentType: { $exists: false } },
+                            { studentType: null },
+                            { studentType: "" }
+                        ]
+                    },
+                    { $set: { studentType: "insider" } }
+                ),
+                UserModel.updateMany(
+                    { isVerified: { $exists: false } },
+                    { $set: { isVerified: true } }
+                )
+            ]);
+
+            if (studentTypeResult?.modifiedCount) {
+                console.log(`✅ ${studentTypeResult.modifiedCount} student insider qilib yangilandi`);
+            }
+            if (verificationResult?.modifiedCount) {
+                console.log(`✅ ${verificationResult.modifiedCount} user verified flag bilan yangilandi`);
             }
         } catch (err) {
-            console.error("❌ StudentType migratsiya xatosi:", err);
+            console.error("❌ User migratsiya xatosi:", err);
         }
     })
     .catch((error) => console.error("❌ MongoDB ulanishda xato:", error));
 
 // 5. Routes
+app.use("/auth", AuthRouter);
 app.use("/student", Student);
 app.use("/user", UserRouter);
 app.use("/test", Test);

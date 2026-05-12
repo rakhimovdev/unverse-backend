@@ -4,27 +4,15 @@ const router = express.Router();
 
 const auth = require("../middleware/auth");
 const WritingResult = require("../models/WritingResult");
+const {
+    SINGLE_AI_CHECK_LIMIT,
+    checkSingleAiAccess
+} = require("../utils/aiWritingLimit");
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
 const client = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
-
-const ALLOWED_ROLES = new Set(["admin", "mooc", "mock_user"]);
-const LIMITS_BY_ROLE = {
-    mock_user: 10,
-    mooc: 1,
-    student: 1
-};
-
-const getLimitForRole = (role) => {
-    if (role === "admin") return null;
-    return LIMITS_BY_ROLE[role] ?? 1;
-};
-
-const getLimitMessage = (role) => (
-    role === "mock_user" ? "limitingiz tugadi" : "limitingiz tugagan"
-);
 
 const jsonSchema = {
     type: "object",
@@ -76,10 +64,6 @@ ${essay}
 
 router.post("/writing/grade", auth, async (req, res) => {
     try {
-        if (!ALLOWED_ROLES.has(req.user?.role)) {
-            return res.status(403).json({ message: "Ruxsat yo'q" });
-        }
-
         if (!OPENAI_API_KEY) {
             return res.status(500).json({
                 message: "OPENAI_API_KEY sozlanmagan"
@@ -100,47 +84,15 @@ router.post("/writing/grade", auth, async (req, res) => {
             });
         }
 
-        const limit = getLimitForRole(req.user?.role);
-        if (limit != null) {
-            const limitMessage = getLimitMessage(req.user?.role);
-            const userId = req.user.id;
-            const taskType = task;
+        const access = await checkSingleAiAccess({
+            userId: req.user.id,
+            taskType: task,
+            writingId,
+            limit: SINGLE_AI_CHECK_LIMIT
+        });
 
-            const alreadyCheckedTask = await WritingResult.exists({
-                userId,
-                writingId: writingId || null,
-                taskType
-            });
-
-            if (alreadyCheckedTask) {
-                return res.status(429).json({ message: limitMessage });
-            }
-
-            if (writingId) {
-                const usedWritingIds = await WritingResult.distinct("writingId", {
-                    userId,
-                    taskType: { $in: ["task1", "task2"] },
-                    writingId: { $ne: null }
-                });
-
-                const alreadyUsedThisWriting = usedWritingIds.some(
-                    (id) => String(id) === String(writingId)
-                );
-
-                if (!alreadyUsedThisWriting && usedWritingIds.length >= limit) {
-                    return res.status(429).json({ message: limitMessage });
-                }
-            } else {
-                const usedCount = await WritingResult.countDocuments({
-                    userId,
-                    taskType: { $in: ["task1", "task2"] },
-                    writingId: null
-                });
-
-                if (usedCount >= limit) {
-                    return res.status(429).json({ message: limitMessage });
-                }
-            }
+        if (!access.allowed) {
+            return res.status(429).json({ message: access.message });
         }
 
         const input = buildPrompt({
@@ -188,7 +140,7 @@ router.post("/writing/grade", auth, async (req, res) => {
             });
         }
 
-        const saved = await WritingResult.create({
+        await WritingResult.create({
             userId: req.user.id,
             writingId: writingId || null,
             essayText: essay.trim(),
@@ -255,15 +207,12 @@ router.post("/writing/grade", auth, async (req, res) => {
 
 router.get("/writing/results", auth, async (req, res) => {
     try {
-        if (!ALLOWED_ROLES.has(req.user?.role)) {
-            return res.status(403).json({ message: "Ruxsat yo'q" });
-        }
-
-        const filter = {};
-
-        if (req.user.role !== "admin") {
-            filter.userId = req.user.id;
-        }
+        const filter = {
+            userId:
+                req.user?.role === "admin" && req.query.userId
+                    ? req.query.userId
+                    : req.user.id
+        };
 
         const results = await WritingResult.find(filter)
             .sort({ createdAt: -1 })

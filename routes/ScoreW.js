@@ -49,23 +49,23 @@ router.post("/response", auth, async (req, res) => {
         const newResponse = new Response(
             hasCombinedAnswers
                 ? {
-                      writingId,
-                      task1Topic,
-                      task2Topic,
-                      task1Answer,
-                      task2Answer,
-                      userId,
-                      userName: user.name,
-                      userLastname: user.lastname
-                  }
+                    writingId,
+                    task1Topic,
+                    task2Topic,
+                    task1Answer,
+                    task2Answer,
+                    userId,
+                    userName: user.name,
+                    userLastname: user.lastname
+                }
                 : {
-                      writingId,
-                      topic: topic || task1Topic,
-                      userId,
-                      userName: user.name,
-                      userLastname: user.lastname,
-                      answer
-                  }
+                    writingId,
+                    topic: topic || task1Topic,
+                    userId,
+                    userName: user.name,
+                    userLastname: user.lastname,
+                    answer
+                }
         );
 
         await newResponse.save();

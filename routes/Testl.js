@@ -3,26 +3,13 @@ const fs = require("fs");
 const mongoose = require("mongoose");
 const cloudinary = require("../config/cloudinary");
 const { upload } = require("../middleware/upload");
+const auth = require("../middleware/auth");
+const requireRoles = require("../middleware/requireRoles");
 const Listening = require("../models/Testl");
-const jwt = require("jsonwebtoken");
+const { getOptionalAuthPayload } = require("../utils/jwt");
 const router = express.Router();
 
-const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
-
-const getRoleFromReq = (req) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) return null;
-    const token = authHeader.startsWith("Bearer ")
-        ? authHeader.split(" ")[1]
-        : authHeader;
-    if (!token) return null;
-    try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        return decoded?.role || null;
-    } catch (err) {
-        return null;
-    }
-};
+const getRoleFromReq = (req) => getOptionalAuthPayload(req)?.role || null;
 
 const normalizeAudience = (value) => (value === "mooc" ? "mooc" : "regular");
 
@@ -121,6 +108,8 @@ const PART_AUDIO_FIELDS = Array.from({ length: 4 }, (_, index) => ({
  */
 router.post(
     "/full",
+    auth,
+    requireRoles("teacher", "admin"),
     upload.fields([
         { name: "audio", maxCount: 1 },
         { name: "image", maxCount: 1 },
@@ -282,17 +271,22 @@ router.get("/audio/:id", async (req, res) => {
         const { id } = req.params;
         const baseUrl = resolveBaseUrl(req);
         const partIndex = Number(req.query.part);
+        const role = getRoleFromReq(req);
 
         if (!mongoose.isValidObjectId(id)) {
             return res.status(404).json({ message: "Audio topilmadi" });
         }
 
         const listening = await Listening.findById(id).select(
-            "audioUrl audioPath parts.audioUrl parts.audioPath"
+            "audioUrl audioPath audience parts.audioUrl parts.audioPath"
         );
 
         if (!listening) {
             return res.status(404).json({ message: "Audio topilmadi" });
+        }
+
+        if (!canAccessAudience(role, listening.audience)) {
+            return res.status(403).json({ message: "Ruxsat yo'q" });
         }
 
         let url = null;
@@ -335,7 +329,7 @@ router.get("/all", async (req, res) => {
 /**
  * 🔹 Testni o‘chirish
  */
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", auth, requireRoles("teacher", "admin"), async (req, res) => {
     try {
         const deleted = await Listening.findByIdAndDelete(req.params.id);
         if (!deleted) {

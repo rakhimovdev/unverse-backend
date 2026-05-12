@@ -1,45 +1,42 @@
-const jwt = require("jsonwebtoken");
-const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
+const User = require("../models/User");
+const { extractBearerToken, verifyAuthToken } = require("../utils/jwt");
 
-function authMiddleware(req, res, next) {
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader) {
-        return res.status(401).json({ message: "Token topilmadi ❌" });
-    }
-
-    // "Bearer token" yoki faqat "token"
-    const token = authHeader.startsWith("Bearer ")
-        ? authHeader.split(" ")[1]
-        : authHeader;
+async function authMiddleware(req, res, next) {
+    const token = extractBearerToken(req.headers.authorization);
 
     if (!token) {
-        return res.status(401).json({ message: "Token topilmadi ❌" });
+        return res.status(401).json({ message: "Authentication token is required." });
     }
 
     try {
-        const decoded = jwt.verify(token, JWT_SECRET);
+        const decoded = verifyAuthToken(token);
+        const user = await User.findById(decoded.id).select(
+            "_id fullname name lastname email username role avatar isVerified studentType teacher timeSlot timeSlots"
+        );
 
-        // 🔹 decoded object ichida `id`, `role`, `email` bo‘lishi mumkin
-        req.user = decoded;
-
-        next();
-    } catch (err) {
-        if (err?.name === "TokenExpiredError") {
-            try {
-                const decoded = jwt.verify(token, JWT_SECRET, { ignoreExpiration: true });
-                if (decoded?.role === "teacher") {
-                    req.user = decoded;
-                    return next();
-                }
-            } catch (innerErr) {
-                console.error("JWT xatosi:", innerErr.message);
-                return res.status(401).json({ message: "Noto‘g‘ri token ❌" });
-            }
+        if (!user) {
+            return res.status(401).json({ message: "Authenticated user could not be found." });
         }
 
-        console.error("JWT xatosi:", err.message);
-        return res.status(401).json({ message: "Noto‘g‘ri yoki muddati o‘tgan token ❌" });
+        if (user.isVerified === false) {
+            return res.status(401).json({ message: "Please verify your email before continuing." });
+        }
+
+        req.user = {
+            id: String(user._id),
+            email: user.email,
+            username: user.username || "",
+            role: user.role,
+            fullname: user.fullname || "",
+            isVerified: user.isVerified,
+            avatar: user.avatar || ""
+        };
+        req.authToken = token;
+
+        return next();
+    } catch (err) {
+        console.error("JWT error:", err.message);
+        return res.status(401).json({ message: "Invalid or expired authentication token." });
     }
 }
 

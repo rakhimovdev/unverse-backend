@@ -1,16 +1,52 @@
 const mongoose = require("mongoose");
 
-const UserSchema = new mongoose.Schema({
-    email: { type: String, required: true, unique: true },
-    name: { type: String, required: true },
-    lastname: { type: String, required: true },
-    username: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
-    role: { type: String, enum: ["student", "teacher", "admin", "mock_user", "mooc"], default: "student" },
-    studentType: { type: String, enum: ["insider", "outsider"], default: null },
-    teacher: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
-    timeSlot: { type: mongoose.Schema.Types.ObjectId, ref: "TimeSlot", default: null },
-    timeSlots: [{ type: mongoose.Schema.Types.ObjectId, ref: "TimeSlot" }]
-}, { timestamps: true });
+const UserSchema = new mongoose.Schema(
+        {
+        fullname: { type: String, trim: true, default: "" },
+        email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+        password: { type: String, default: "", select: false },
+        googleId: { type: String, unique: true, sparse: true, trim: true },
+        avatar: { type: String, default: "" },
+        role: {
+            type: String,
+            enum: ["student", "teacher", "admin", "mock_user", "mooc"],
+            default: "student"
+        },
+        isVerified: { type: Boolean, default: false },
+        otpCode: { type: String, default: "", select: false },
+        otpExpires: { type: Date, default: null, select: false },
+        otpLastSentAt: { type: Date, default: null, select: false },
+        name: { type: String, trim: true, default: "" },
+        lastname: { type: String, trim: true, default: "" },
+        username: { type: String, unique: true, sparse: true, trim: true },
+        studentType: { type: String, enum: ["insider", "outsider"], default: null },
+        teacher: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+        timeSlot: { type: mongoose.Schema.Types.ObjectId, ref: "TimeSlot", default: null },
+        timeSlots: [{ type: mongoose.Schema.Types.ObjectId, ref: "TimeSlot" }]
+    },
+    { timestamps: true }
+);
 
-module.exports = mongoose.model('User', UserSchema);
+UserSchema.pre("validate", function syncLegacyNameFields(next) {
+    const safeFullname = typeof this.fullname === "string" ? this.fullname.trim() : "";
+    const safeName = typeof this.name === "string" ? this.name.trim() : "";
+    const safeLastname = typeof this.lastname === "string" ? this.lastname.trim() : "";
+
+    if (!safeFullname && (safeName || safeLastname)) {
+        this.fullname = [safeName, safeLastname].filter(Boolean).join(" ").trim();
+    }
+
+    if (safeFullname && (!safeName || !safeLastname)) {
+        const [first = "", ...rest] = safeFullname.split(/\s+/);
+        this.name = safeName || first;
+        this.lastname = safeLastname || rest.join(" ");
+    }
+
+    if (typeof this.email === "string") {
+        this.email = this.email.trim().toLowerCase();
+    }
+
+    next();
+});
+
+module.exports = mongoose.models.User || mongoose.model("User", UserSchema);

@@ -4,24 +4,11 @@ const multer = require("multer");
 const Writing = require("../models/writing");
 const Response = require("../models/Response");
 const User = require("../models/Student");
-const jwt = require("jsonwebtoken");
+const auth = require("../middleware/auth");
+const requireRoles = require("../middleware/requireRoles");
+const { getOptionalAuthPayload } = require("../utils/jwt");
 
-const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
-
-const getRoleFromReq = (req) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) return null;
-  const token = authHeader.startsWith("Bearer ")
-    ? authHeader.split(" ")[1]
-    : authHeader;
-  if (!token) return null;
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    return decoded?.role || null;
-  } catch (err) {
-    return null;
-  }
-};
+const getRoleFromReq = (req) => getOptionalAuthPayload(req)?.role || null;
 
 const normalizeAudience = (value) => (value === "mooc" ? "mooc" : "regular");
 
@@ -46,7 +33,12 @@ const toDataUri = (file) =>
   `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
 
 // -------------------- POST: Writing create --------------------
-router.post("/upload", upload.single("image"), async (req, res) => {
+router.post(
+  "/upload",
+  auth,
+  requireRoles("teacher", "admin"),
+  upload.single("image"),
+  async (req, res) => {
   try {
     console.log("BODY:", req.body);
     console.log("FILE:", req.file);
@@ -124,7 +116,7 @@ router.post("/upload", upload.single("image"), async (req, res) => {
   }
 });
 
-router.delete("/delete/:id", async (req, res) => {
+router.delete("/delete/:id", auth, requireRoles("teacher", "admin"), async (req, res) => {
   try {
     const writing = await Writing.findByIdAndDelete(req.params.id);
     if (!writing) {
