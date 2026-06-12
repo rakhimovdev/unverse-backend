@@ -1,10 +1,11 @@
 const express = require("express");
 const OpenAI = require("openai");
 const auth = require("../middleware/auth");
+const User = require("../models/User");
 const WritingResult = require("../models/WritingResult");
 const {
-    SINGLE_AI_CHECK_LIMIT,
-    checkSingleAiAccess
+    checkWritingAccess,
+    consumeWritingCheck
 } = require("../utils/aiWritingLimit");
 
 const router = express.Router();
@@ -48,6 +49,19 @@ ${essayText.trim()}
 `;
 };
 
+const toStringList = (value) => {
+    if (Array.isArray(value)) {
+        return value.map((item) => String(item).trim()).filter(Boolean);
+    }
+
+    if (!value) return [];
+
+    return String(value)
+        .split(/\n+|•|-/g)
+        .map((item) => item.trim())
+        .filter(Boolean);
+};
+
 router.post("/ai-check", auth, async (req, res) => {
     try {
         // API KEY CHECK
@@ -72,14 +86,24 @@ router.post("/ai-check", auth, async (req, res) => {
             });
         }
 
-        const access = await checkSingleAiAccess({
-            userId: req.user.id,
-            taskType,
-            limit: SINGLE_AI_CHECK_LIMIT
+        const user = req.userDoc || (await User.findById(req.user.id));
+        if (!user) {
+            return res.status(404).json({
+                message: "User topilmadi"
+            });
+        }
+
+        const access = await checkWritingAccess({
+            user,
+            taskType
         });
 
         if (!access.allowed) {
-            return res.status(429).json({ message: access.message });
+            if (user.isModified()) {
+                await user.save();
+            }
+
+            return res.status(access.status || 403).json({ message: access.message });
         }
 
         const prompt = buildPrompt({ essayText, taskType });
@@ -114,13 +138,26 @@ router.post("/ai-check", auth, async (req, res) => {
             result.band_score = result.estimated_band;
         }
 
+        const storedResult = {
+            band_score: result.band_score,
+            grammar_feedback: toStringList(result.grammar_feedback),
+            improvement_tips: toStringList(result.improvement_tips)
+        };
+
+        if (access.shouldConsume) {
+            consumeWritingCheck(user);
+        }
+
         // SAVE TO DB
-        await WritingResult.create({
-            userId: req.user.id,
-            essayText: essayText.trim(),
-            taskType,
-            result
-        });
+        await Promise.all([
+            user.isModified() ? user.save() : Promise.resolve(),
+            WritingResult.create({
+                userId: req.user.id,
+                essayText: essayText.trim(),
+                taskType,
+                result: storedResult
+            })
+        ]);
 
         return res.json({
             success: true,

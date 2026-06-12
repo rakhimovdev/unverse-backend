@@ -10,7 +10,15 @@ const SlotCheck = require("../models/SlotCheck");
 const Score = require("../models/Score");
 const ScoreL = require("../models/ScoreL");
 const ScoreW = require("../models/ScoreW");
+const Result = require("../models/Result");
 const WritingResult = require("../models/WritingResult");
+const { getAdminResults } = require("../controllers/resultController");
+const { serializeUser } = require("../utils/userSerializer");
+const {
+    applyProDuration,
+    checkAndExpirePro,
+    stopPro
+} = require("../utils/proPlan");
 
 const getTodayKey = () => {
     const now = new Date();
@@ -26,6 +34,153 @@ function adminOnly(req, res, next) {
     }
     next();
 }
+
+const safeCount = async (Model, filter = {}) => {
+    try {
+        return await Model.countDocuments(filter);
+    } catch (err) {
+        return 0;
+    }
+};
+
+router.get("/results", auth, adminOnly, getAdminResults);
+
+// =====================
+// Admin: Search user by email
+// =====================
+router.get("/users/search", auth, adminOnly, async (req, res) => {
+    try {
+        const email = String(req.query.email || "").trim().toLowerCase();
+
+        if (!email) {
+            return res.status(400).json({ message: "Email kerak" });
+        }
+
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(404).json({ message: "Foydalanuvchi topilmadi" });
+        }
+
+        await checkAndExpirePro(user);
+
+        return res.json({
+            user: serializeUser(user)
+        });
+    } catch (err) {
+        console.error("Admin search user error:", err);
+        return res.status(500).json({ message: "Server xatosi" });
+    }
+});
+
+// =====================
+// Admin: Upgrade user to PRO
+// =====================
+router.post("/users/:id/upgrade-pro", auth, adminOnly, async (req, res) => {
+    try {
+        const { duration } = req.body || {};
+        const user = await User.findById(req.params.id);
+
+        if (!user) {
+            return res.status(404).json({ message: "Foydalanuvchi topilmadi" });
+        }
+
+        const expiresAt = applyProDuration(user, duration);
+        if (!expiresAt) {
+            return res.status(400).json({ message: "Noto'g'ri PRO duration" });
+        }
+
+        await user.save();
+
+        return res.json({
+            message: "User upgraded to PRO successfully.",
+            user: serializeUser(user)
+        });
+    } catch (err) {
+        console.error("Admin upgrade PRO error:", err);
+        return res.status(500).json({ message: "Server xatosi" });
+    }
+});
+
+// =====================
+// Admin: Stop PRO
+// =====================
+router.post("/users/:id/stop-pro", auth, adminOnly, async (req, res) => {
+    try {
+        const user = await User.findById(req.params.id);
+
+        if (!user) {
+            return res.status(404).json({ message: "Foydalanuvchi topilmadi" });
+        }
+
+        stopPro(user);
+        await user.save();
+
+        return res.json({
+            message: "PRO subscription stopped successfully.",
+            user: serializeUser(user)
+        });
+    } catch (err) {
+        console.error("Admin stop PRO error:", err);
+        return res.status(500).json({ message: "Server xatosi" });
+    }
+});
+
+// =====================
+// Admin: Analytics
+// =====================
+router.get("/analytics", auth, adminOnly, async (req, res) => {
+    try {
+        const now = new Date();
+        const startOfToday = new Date(
+            now.getFullYear(),
+            now.getMonth(),
+            now.getDate()
+        );
+        const startOfWeekWindow = new Date(startOfToday);
+        startOfWeekWindow.setDate(startOfWeekWindow.getDate() - 6);
+
+        const [totalUsers, activeUsersToday, activeUsersThisWeek, proUsers, readingResults, listeningResults, writingResults, unifiedResults, totalAIWritingChecks] =
+            await Promise.all([
+                safeCount(User),
+                safeCount(User, { lastActiveAt: { $gte: startOfToday } }),
+                safeCount(User, { lastActiveAt: { $gte: startOfWeekWindow } }),
+                safeCount(User, {
+                    $and: [
+                        { $or: [{ plan: "pro" }, { isPro: true }] },
+                        {
+                            $or: [
+                                { proExpiresAt: null },
+                                { proExpiresAt: { $gt: now } }
+                            ]
+                        }
+                    ]
+                }),
+                safeCount(Score),
+                safeCount(ScoreL),
+                safeCount(ScoreW),
+                safeCount(Result),
+                safeCount(WritingResult, { taskType: { $ne: "overall" } })
+            ]);
+
+        const totalTestsTaken =
+            unifiedResults || readingResults + listeningResults + writingResults;
+        const freeUsers = Math.max(0, totalUsers - proUsers);
+
+        return res.json({
+            totalUsers,
+            activeUsersToday,
+            activeUsersThisWeek,
+            proUsers,
+            freeUsers,
+            totalTestsTaken,
+            totalStoredResults: unifiedResults,
+            totalAIWritingChecks
+        });
+    } catch (err) {
+        console.error("Admin analytics error:", err);
+        return res.status(500).json({ message: "Server xatosi" });
+    }
+});
 
 // =====================
 // Admin: Teacher list

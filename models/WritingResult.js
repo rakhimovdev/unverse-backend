@@ -12,12 +12,21 @@ const WritingResultSchema = new mongoose.Schema(
             ref: "Writing",
             default: null
         },
+        attemptKey: {
+            type: String,
+            default: "",
+            trim: true
+        },
 
         essayText: {
             type: String,
             required: function () {
                 return this.taskType !== "overall";
             },
+            default: ""
+        },
+        prompt: {
+            type: String,
             default: ""
         },
 
@@ -34,19 +43,33 @@ const WritingResultSchema = new mongoose.Schema(
             },
 
             grammar_feedback: {
-                type: [String], // 🔥 ARRAY
-                required: function () {
-                    return this.taskType !== "overall";
-                },
+                type: [String],
+                default: []
+            },
+
+            vocabulary_feedback: {
+                type: [String],
+                default: []
+            },
+
+            coherence_feedback: {
+                type: [String],
+                default: []
+            },
+
+            weaknesses: {
+                type: [String],
                 default: []
             },
 
             improvement_tips: {
-                type: [String], // 🔥 ARRAY
-                required: function () {
-                    return this.taskType !== "overall";
-                },
+                type: [String],
                 default: []
+            },
+
+            final_summary: {
+                type: String,
+                default: ""
             }
         }
     },

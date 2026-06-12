@@ -4,6 +4,8 @@ const ScoreL = require("../models/ScoreL");
 const User = require("../models/User");
 const auth = require("../middleware/auth");
 const Listening = require("../models/Testl"); // Listening model
+const { saveListeningResult } = require("../services/resultService");
+const { LISTENING_BAND_TABLE, getBandScore } = require("../utils/ieltsBands");
 
 const normalizeStudentNames = (user) => {
     const safe = (value) => (typeof value === "string" ? value.trim() : "");
@@ -22,7 +24,7 @@ const normalizeStudentNames = (user) => {
 // Score qo‘shish (student faqat o‘zi uchun)
 router.post("/add", auth, async (req, res) => {
     try {
-        const { listeningId, score } = req.body;
+        const { listeningId, score, attemptKey, listeningDetails } = req.body;
 
         if (!listeningId || score === undefined) {
             return res.status(400).json({ message: "listeningId va score kerak!" });
@@ -42,26 +44,52 @@ router.post("/add", auth, async (req, res) => {
 
         // Agar avval score bo‘lsa, yangilaymiz
         let existing = await ScoreL.findOne({ student: req.user.id, test: listeningId });
+        const wasExisting = Boolean(existing);
         if (existing) {
             existing.score = score;
             existing.studentName = studentName;
             existing.studentLastname = studentLastname;
             await existing.save();
-            return res.json({ message: "Score yangilandi ✅", score: existing });
+        } else {
+            const newScore = new ScoreL({
+                student: req.user.id,
+                studentName,
+                studentLastname,
+                test: listening._id,
+                testName: listening.title,
+                score,
+            });
+
+            await newScore.save();
+            existing = newScore;
         }
 
-        const newScore = new ScoreL({
-            student: req.user.id,
-            studentName,
-            studentLastname,
-            test: listening._id,
+        const maybeBandScore = Number(listeningDetails?.academicBand);
+        const maybeGeneralBand = Number(listeningDetails?.generalBand);
+        const bandScore = Number.isFinite(maybeBandScore)
+            ? maybeBandScore
+            : getBandScore(score, LISTENING_BAND_TABLE);
+
+        await saveListeningResult({
+            userId: req.user.id,
+            testId: listening._id,
             testName: listening.title,
-            score,
+            attemptKey,
+            listening: {
+                sectionScores: listeningDetails?.sectionScores || [],
+                rawScore: Number(listeningDetails?.rawScore ?? score) || 0,
+                rawTotal: Number(listeningDetails?.rawTotal) || 40,
+                academicBand: bandScore,
+                generalBand: Number.isFinite(maybeGeneralBand) ? maybeGeneralBand : bandScore,
+                correctAnswers: listeningDetails?.correctAnswers || [],
+                wrongAnswers: listeningDetails?.wrongAnswers || []
+            }
         });
 
-        await newScore.save();
-
-        res.status(201).json({ message: "Score saqlandi ✅", score: newScore });
+        res.status(201).json({
+            message: wasExisting ? "Score yangilandi ✅" : "Score saqlandi ✅",
+            score: existing
+        });
     } catch (err) {
         console.error("Score saqlashda xato:", err);
         res.status(500).json({ message: "Server xatosi!" });

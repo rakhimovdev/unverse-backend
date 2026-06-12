@@ -5,8 +5,7 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const path = require("path");
 const UserModel = require("./models/User");
-
-// Routers
+const clickRoutes = require('./routes/click')// Routers
 const Student = require("./routes/Student");
 const UserRouter = require("./routes/User");
 const Test = require("./routes/Test");
@@ -19,6 +18,7 @@ const Admin = require("./routes/Admin");
 const AiWriting = require("./routes/AiWriting");
 const WritingAi = require("./routes/WritingAi");
 const AuthRouter = require("./routes/Auth");
+const Results = require("./routes/Results");
 
 // 1. Avval CORS
 const configuredOrigins = String(process.env.FRONTEND_URLS || "")
@@ -113,7 +113,8 @@ app.use("/scorew", ScoreW);   // writing route uchun
 app.use("/admin", Admin);
 app.use("/ai", AiWriting);
 app.use("/api/writing", WritingAi);
-
+app.use("/results", Results);
+app.use('/api/click', clickRoutes)
 // 6. Server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

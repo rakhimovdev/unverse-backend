@@ -5,6 +5,7 @@ const User = require("../models/User");
 const TimeSlot = require("../models/TimeSlot");
 const { signAuthToken } = require("../utils/jwt");
 const { serializeUser } = require("../utils/userSerializer");
+const { checkAndExpirePro } = require("../utils/proPlan");
 const { buildUniqueUsername } = require("../utils/username");
 const {
     PASSWORD_MAX_LENGTH,
@@ -480,6 +481,8 @@ const getCurrentUser = async (userId) => {
     if (!user) {
         throw createAuthError(404, "User not found.");
     }
+
+    await checkAndExpirePro(user);
 
     return {
         user: serializeUser(user)

@@ -3,10 +3,13 @@ const OpenAI = require("openai");
 const router = express.Router();
 
 const auth = require("../middleware/auth");
+const User = require("../models/User");
+const Writing = require("../models/writing");
 const WritingResult = require("../models/WritingResult");
+const { syncWritingResult } = require("../services/resultService");
 const {
-    SINGLE_AI_CHECK_LIMIT,
-    checkSingleAiAccess
+    checkWritingAccess,
+    consumeWritingCheck
 } = require("../utils/aiWritingLimit");
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
@@ -23,12 +26,33 @@ const jsonSchema = {
             type: "array",
             items: { type: "string" }
         },
+        vocabulary_feedback: {
+            type: "array",
+            items: { type: "string" }
+        },
+        coherence_feedback: {
+            type: "array",
+            items: { type: "string" }
+        },
+        weaknesses: {
+            type: "array",
+            items: { type: "string" }
+        },
         improvement_tips: {
             type: "array",
             items: { type: "string" }
-        }
+        },
+        final_summary: { type: "string" }
     },
-    required: ["band_score", "grammar_feedback", "improvement_tips"]
+    required: [
+        "band_score",
+        "grammar_feedback",
+        "vocabulary_feedback",
+        "coherence_feedback",
+        "weaknesses",
+        "improvement_tips",
+        "final_summary"
+    ]
 };
 
 const roundToHalfBand = (value) => {
@@ -53,6 +77,7 @@ const buildPrompt = ({ essay, task, prompt, language }) => {
 You are an IELTS Writing examiner.
 Respond in ${langLabel}.
 Return ONLY valid JSON.
+Provide concise but specific feedback for grammar, vocabulary, coherence/cohesion, main weaknesses, improvement tips, and a short final summary.
 
 Task: ${task || ""}
 Question: ${prompt || ""}
@@ -60,6 +85,59 @@ Question: ${prompt || ""}
 Essay:
 ${essay}
 `;
+};
+
+const normalizeList = (value) =>
+    Array.isArray(value)
+        ? value
+              .map((item) => (typeof item === "string" ? item.trim() : ""))
+              .filter(Boolean)
+        : [];
+
+const normalizeAiResult = (value = {}) => ({
+    band_score:
+        value?.band_score == null || Number.isNaN(Number(value.band_score))
+            ? null
+            : Number(value.band_score),
+    grammar_feedback: normalizeList(value?.grammar_feedback),
+    vocabulary_feedback: normalizeList(value?.vocabulary_feedback),
+    coherence_feedback: normalizeList(value?.coherence_feedback),
+    weaknesses: normalizeList(value?.weaknesses),
+    improvement_tips: normalizeList(value?.improvement_tips),
+    final_summary:
+        typeof value?.final_summary === "string" ? value.final_summary.trim() : ""
+});
+
+const buildOverallSummary = (task1, task2, overallBand) => {
+    const segments = [];
+    const task1Summary = task1?.result?.final_summary;
+    const task2Summary = task2?.result?.final_summary;
+    const weaknesses = [
+        ...(task1?.result?.weaknesses || []),
+        ...(task2?.result?.weaknesses || [])
+    ].filter(Boolean);
+    const tips = [
+        ...(task1?.result?.improvement_tips || []),
+        ...(task2?.result?.improvement_tips || [])
+    ].filter(Boolean);
+
+    if (overallBand != null) {
+        segments.push(`Overall writing band: ${overallBand}.`);
+    }
+    if (task1Summary) {
+        segments.push(`Task 1: ${task1Summary}`);
+    }
+    if (task2Summary) {
+        segments.push(`Task 2: ${task2Summary}`);
+    }
+    if (weaknesses.length) {
+        segments.push(`Main weaknesses: ${weaknesses.slice(0, 4).join("; ")}.`);
+    }
+    if (tips.length) {
+        segments.push(`Priority improvements: ${tips.slice(0, 4).join("; ")}.`);
+    }
+
+    return segments.join(" ").trim();
 };
 
 router.post("/writing/grade", auth, async (req, res) => {
@@ -70,7 +148,7 @@ router.post("/writing/grade", auth, async (req, res) => {
             });
         }
 
-        const { essay, task, prompt, language, writingId } = req.body || {};
+        const { essay, task, prompt, language, writingId, attemptKey } = req.body || {};
 
         if (!essay || typeof essay !== "string" || !essay.trim()) {
             return res.status(400).json({
@@ -84,15 +162,25 @@ router.post("/writing/grade", auth, async (req, res) => {
             });
         }
 
-        const access = await checkSingleAiAccess({
-            userId: req.user.id,
-            taskType: task,
+        const user = req.userDoc || (await User.findById(req.user.id));
+        if (!user) {
+            return res.status(404).json({
+                message: "User topilmadi"
+            });
+        }
+
+        const access = await checkWritingAccess({
+            user,
             writingId,
-            limit: SINGLE_AI_CHECK_LIMIT
+            taskType: task
         });
 
         if (!access.allowed) {
-            return res.status(429).json({ message: access.message });
+            if (user.isModified()) {
+                await user.save();
+            }
+
+            return res.status(access.status || 403).json({ message: access.message });
         }
 
         const input = buildPrompt({
@@ -140,17 +228,38 @@ router.post("/writing/grade", auth, async (req, res) => {
             });
         }
 
-        await WritingResult.create({
-            userId: req.user.id,
-            writingId: writingId || null,
-            essayText: essay.trim(),
-            taskType: task,
-            result
-        });
+        result = normalizeAiResult(result);
+
+        if (result.band_score == null) {
+            return res.status(500).json({
+                message: "AI band score qaytarmadi"
+            });
+        }
+
+        if (access.shouldConsume) {
+            consumeWritingCheck(user);
+        }
+
+        await Promise.all([
+            user.isModified() ? user.save() : Promise.resolve(),
+            WritingResult.create({
+                userId: req.user.id,
+                writingId: writingId || null,
+                attemptKey: attemptKey || "",
+                essayText: essay.trim(),
+                prompt: typeof prompt === "string" ? prompt.trim() : "",
+                taskType: task,
+                result
+            })
+        ]);
 
         let overall = null;
         const filter = { userId: req.user.id };
-        if (writingId) filter.writingId = writingId;
+        if (attemptKey) {
+            filter.attemptKey = attemptKey;
+        } else if (writingId) {
+            filter.writingId = writingId;
+        }
 
         const [task1Result, task2Result] = await Promise.all([
             WritingResult.findOne({ ...filter, taskType: "task1" })
@@ -168,16 +277,38 @@ router.post("/writing/grade", auth, async (req, res) => {
             );
 
             if (overallBand != null) {
+                const finalSummary = buildOverallSummary(
+                    task1Result,
+                    task2Result,
+                    overallBand
+                );
+
                 if (writingId) {
                     overall = await WritingResult.findOneAndUpdate(
-                        { userId: req.user.id, writingId, taskType: "overall" },
+                        {
+                            userId: req.user.id,
+                            writingId,
+                            attemptKey: attemptKey || "",
+                            taskType: "overall"
+                        },
                         {
                             $set: {
                                 essayText: "",
+                                prompt: "",
                                 result: {
                                     band_score: overallBand,
                                     grammar_feedback: [],
-                                    improvement_tips: []
+                                    vocabulary_feedback: [],
+                                    coherence_feedback: [],
+                                    weaknesses: [
+                                        ...(task1Result?.result?.weaknesses || []),
+                                        ...(task2Result?.result?.weaknesses || [])
+                                    ].slice(0, 6),
+                                    improvement_tips: [
+                                        ...(task1Result?.result?.improvement_tips || []),
+                                        ...(task2Result?.result?.improvement_tips || [])
+                                    ].slice(0, 6),
+                                    final_summary: finalSummary
                                 }
                             }
                         },
@@ -185,9 +316,24 @@ router.post("/writing/grade", auth, async (req, res) => {
                     );
                 } else {
                     overall = {
-                        band_score: overallBand
+                        band_score: overallBand,
+                        final_summary: finalSummary
                     };
                 }
+
+                const writingTest = writingId
+                    ? await Writing.findById(writingId).select("task1Topic topic")
+                    : null;
+
+                await syncWritingResult({
+                    userId: req.user.id,
+                    testId: writingId || null,
+                    testName:
+                        writingTest?.task1Topic ||
+                        writingTest?.topic ||
+                        "Writing Test",
+                    attemptKey
+                });
             }
         }
 

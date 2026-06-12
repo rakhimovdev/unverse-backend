@@ -1,69 +1,130 @@
 const WritingResult = require("../models/WritingResult");
+const { isProActive } = require("./proPlan");
 
-const TRACKED_TASKS = ["task1", "task2"];
-const FREEFORM_SESSION_KEY = "__freeform__";
-const SINGLE_AI_CHECK_LIMIT = 1;
-const SINGLE_AI_CHECK_MESSAGE = "AI tekshiruv faqat 1 martalik. Limitingiz tugagan.";
+const FREE_DAILY_WRITING_CHECK_LIMIT = 1;
+const FREE_DAILY_WRITING_CHECK_MESSAGE =
+    "Daily free writing check limit reached. Upgrade to PRO.";
 
-const normalizeWritingId = (writingId) => writingId || null;
+const isSameLocalDay = (left, right) => {
+    if (!left || !right) return false;
 
-const toSessionKey = (writingId) => (
-    writingId ? String(writingId) : FREEFORM_SESSION_KEY
-);
+    return (
+        left.getFullYear() === right.getFullYear() &&
+        left.getMonth() === right.getMonth() &&
+        left.getDate() === right.getDate()
+    );
+};
 
-const checkSingleAiAccess = async ({
-    userId,
-    taskType,
+const resetWritingUsageIfNeeded = (user, now = new Date()) => {
+    if (!user) return false;
+
+    const resetAt = user.writingChecksResetAt
+        ? new Date(user.writingChecksResetAt)
+        : null;
+
+    if (resetAt && isSameLocalDay(resetAt, now)) {
+        return false;
+    }
+
+    user.writingChecksUsedToday = 0;
+    user.writingChecksResetAt = now;
+    return true;
+};
+
+const checkWritingAccess = async ({
+    user,
     writingId = null,
-    limit = SINGLE_AI_CHECK_LIMIT
+    taskType = "",
+    now = new Date()
 }) => {
-    const normalizedWritingId = normalizeWritingId(writingId);
-
-    const alreadyCheckedTask = await WritingResult.exists({
-        userId,
-        writingId: normalizedWritingId,
-        taskType
-    });
-
-    if (alreadyCheckedTask) {
+    if (!user) {
         return {
             allowed: false,
-            message: SINGLE_AI_CHECK_MESSAGE
+            status: 401,
+            message: "Authentication required.",
         };
     }
 
-    const [usedWritingIds, hasFreeformSession] = await Promise.all([
-        WritingResult.distinct("writingId", {
-            userId,
-            taskType: { $in: TRACKED_TASKS },
-            writingId: { $ne: null }
-        }),
-        WritingResult.exists({
-            userId,
-            taskType: { $in: TRACKED_TASKS },
-            writingId: null
-        })
-    ]);
+    resetWritingUsageIfNeeded(user, now);
 
-    const usedSessionKeys = new Set(usedWritingIds.map((id) => String(id)));
-
-    if (hasFreeformSession) {
-        usedSessionKeys.add(FREEFORM_SESSION_KEY);
-    }
-
-    const currentSessionKey = toSessionKey(normalizedWritingId);
-
-    if (!usedSessionKeys.has(currentSessionKey) && usedSessionKeys.size >= limit) {
+    if (isProActive(user, now)) {
         return {
-            allowed: false,
-            message: SINGLE_AI_CHECK_MESSAGE
+            allowed: true,
+            isPro: true,
+            shouldConsume: false,
+            remaining: null,
         };
     }
 
-    return { allowed: true };
+    const used = Number(user.writingChecksUsedToday) || 0;
+    if (used >= FREE_DAILY_WRITING_CHECK_LIMIT) {
+        if (writingId && taskType) {
+            const startOfToday = new Date(
+                now.getFullYear(),
+                now.getMonth(),
+                now.getDate()
+            );
+
+            const [hasCompanionTaskToday, hasCurrentTaskToday] = await Promise.all([
+                WritingResult.exists({
+                    userId: user._id,
+                    writingId,
+                    taskType: { $ne: taskType },
+                    createdAt: { $gte: startOfToday }
+                }),
+                WritingResult.exists({
+                    userId: user._id,
+                    writingId,
+                    taskType,
+                    createdAt: { $gte: startOfToday }
+                })
+            ]);
+
+            if (hasCompanionTaskToday && !hasCurrentTaskToday) {
+                return {
+                    allowed: true,
+                    isPro: false,
+                    shouldConsume: false,
+                    remaining: 0,
+                };
+            }
+        }
+
+        return {
+            allowed: false,
+            status: 403,
+            message: FREE_DAILY_WRITING_CHECK_MESSAGE,
+            shouldConsume: false,
+            remaining: 0,
+        };
+    }
+
+    return {
+        allowed: true,
+        isPro: false,
+        shouldConsume: true,
+        remaining: FREE_DAILY_WRITING_CHECK_LIMIT - used,
+    };
+};
+
+const consumeWritingCheck = (user, now = new Date()) => {
+    if (!user) return false;
+
+    resetWritingUsageIfNeeded(user, now);
+
+    if (isProActive(user, now)) {
+        return false;
+    }
+
+    user.writingChecksUsedToday = (Number(user.writingChecksUsedToday) || 0) + 1;
+    user.writingChecksResetAt = now;
+    return true;
 };
 
 module.exports = {
-    SINGLE_AI_CHECK_LIMIT,
-    checkSingleAiAccess
+    FREE_DAILY_WRITING_CHECK_LIMIT,
+    FREE_DAILY_WRITING_CHECK_MESSAGE,
+    resetWritingUsageIfNeeded,
+    checkWritingAccess,
+    consumeWritingCheck,
 };

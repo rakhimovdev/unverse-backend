@@ -1,7 +1,8 @@
 const mongoose = require("mongoose");
+const { syncPlanFields } = require("../utils/proPlan");
 
 const UserSchema = new mongoose.Schema(
-        {
+    {
         fullname: { type: String, trim: true, default: "" },
         email: { type: String, required: true, unique: true, lowercase: true, trim: true },
         password: { type: String, default: "", select: false },
@@ -22,7 +23,17 @@ const UserSchema = new mongoose.Schema(
         studentType: { type: String, enum: ["insider", "outsider"], default: null },
         teacher: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
         timeSlot: { type: mongoose.Schema.Types.ObjectId, ref: "TimeSlot", default: null },
-        timeSlots: [{ type: mongoose.Schema.Types.ObjectId, ref: "TimeSlot" }]
+        timeSlots: [{ type: mongoose.Schema.Types.ObjectId, ref: "TimeSlot" }],
+        plan: {
+            type: String,
+            enum: ["free", "pro"],
+            default: "free"
+        },
+        isPro: { type: Boolean, default: false },
+        proExpiresAt: { type: Date, default: null },
+        lastActiveAt: { type: Date, default: null },
+        writingChecksUsedToday: { type: Number, default: 0, min: 0 },
+        writingChecksResetAt: { type: Date, default: null }
     },
     { timestamps: true }
 );
@@ -45,6 +56,8 @@ UserSchema.pre("validate", function syncLegacyNameFields(next) {
     if (typeof this.email === "string") {
         this.email = this.email.trim().toLowerCase();
     }
+
+    syncPlanFields(this);
 
     next();
 });

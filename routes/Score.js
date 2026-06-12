@@ -4,11 +4,18 @@ const Score = require("../models/Score");
 const User = require("../models/User");
 const auth = require("../middleware/auth");
 const Test = require("../models/Test");
+const { serializeUser } = require("../utils/userSerializer");
+const { saveReadingResult } = require("../services/resultService");
+const {
+    READING_ACADEMIC_TABLE,
+    READING_GENERAL_TABLE,
+    getBandScore
+} = require("../utils/ieltsBands");
 
 // Score qo‘shish yoki yangilash
 router.post("/add", auth, async (req, res) => {
     try {
-        const { testId, score } = req.body;
+        const { testId, score, attemptKey, readingDetails } = req.body;
 
         if (!testId || score === undefined) {
             return res.status(400).json({ message: "testId va score kerak!" });
@@ -27,25 +34,54 @@ router.post("/add", auth, async (req, res) => {
         }
 
         let existing = await Score.findOne({ student: req.user.id, test: testId });
+        const wasExisting = Boolean(existing);
         if (existing) {
             existing.score = score;
             await existing.save();
-            return res.json({ message: "Score yangilandi ✅", score: existing });
+        } else {
+            const newScore = new Score({
+                student: req.user.id,
+                test: test._id,
+                score,
+                studentName: user.name,
+                studentLastname: user.lastname,
+                studentEmail: user.email,
+                testName: test.name,
+            });
+
+            await newScore.save();
+            existing = newScore;
         }
 
-        const newScore = new Score({
-            student: req.user.id,
-            test: test._id,
-            score,
-            studentName: user.name,
-            studentLastname: user.lastname,
-            studentEmail: user.email,
+        const maybeAcademicBand = Number(readingDetails?.academicBand);
+        const maybeGeneralBand = Number(readingDetails?.generalBand);
+        const academicBand = Number.isFinite(maybeAcademicBand)
+            ? maybeAcademicBand
+            : getBandScore(score, READING_ACADEMIC_TABLE);
+        const generalBand = Number.isFinite(maybeGeneralBand)
+            ? maybeGeneralBand
+            : getBandScore(score, READING_GENERAL_TABLE);
+
+        await saveReadingResult({
+            userId: req.user.id,
+            testId: test._id,
             testName: test.name,
+            attemptKey,
+            reading: {
+                passageScores: readingDetails?.passageScores || [],
+                rawScore: Number(readingDetails?.rawScore ?? score) || 0,
+                rawTotal: Number(readingDetails?.rawTotal) || 40,
+                academicBand,
+                generalBand,
+                correctAnswers: readingDetails?.correctAnswers || [],
+                wrongAnswers: readingDetails?.wrongAnswers || []
+            }
         });
 
-        await newScore.save();
-
-        res.json({ message: "Score saqlandi ✅", score: newScore });
+        res.json({
+            message: wasExisting ? "Score yangilandi ✅" : "Score saqlandi ✅",
+            score: existing
+        });
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: "Server xatosi!" });
@@ -55,11 +91,11 @@ router.post("/add", auth, async (req, res) => {
 // 1. Foydalanuvchining o‘zini olish
 router.get("/me", auth, async (req, res) => {
     try {
-        const user = await User.findById(req.user.id).select("-password");
+        const user = await User.findById(req.user.id);
         if (!user) {
             return res.status(404).json({ message: "User topilmadi!" });
         }
-        res.json(user);
+        res.json(serializeUser(user));
     } catch (err) {
         res.status(500).json({ message: "Server xatosi!" });
     }
