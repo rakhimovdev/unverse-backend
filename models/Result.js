@@ -54,11 +54,24 @@ const WritingTaskSchema = new mongoose.Schema(
         bandScore: { type: Number, default: null },
         essayText: { type: String, default: "" },
         prompt: { type: String, default: "" },
+        question: { type: String, default: "" },
+        wordCount: { type: Number, default: 0 },
+        taskResponseScore: { type: Number, default: null },
+        coherenceCohesionScore: { type: Number, default: null },
+        lexicalResourceScore: { type: Number, default: null },
+        grammarRangeAccuracyScore: { type: Number, default: null },
+        strengths: { type: [String], default: [] },
         grammarFeedback: { type: [String], default: [] },
         vocabularyFeedback: { type: [String], default: [] },
         coherenceFeedback: { type: [String], default: [] },
         weaknesses: { type: [String], default: [] },
         improvementTips: { type: [String], default: [] },
+        criterionFeedback: {
+            taskResponse: { type: String, default: "" },
+            coherenceCohesion: { type: String, default: "" },
+            lexicalResource: { type: String, default: "" },
+            grammarRangeAccuracy: { type: String, default: "" }
+        },
         finalSummary: { type: String, default: "" }
     },
     { _id: false }

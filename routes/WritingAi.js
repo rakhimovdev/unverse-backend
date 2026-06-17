@@ -1,8 +1,15 @@
 const express = require("express");
 const OpenAI = require("openai");
+
 const auth = require("../middleware/auth");
 const User = require("../models/User");
 const WritingResult = require("../models/WritingResult");
+const {
+    buildOverallAssessmentFromTasks,
+    createStoredWritingResultPayload,
+    gradeWritingEssay,
+    normalizeStoredWritingResult
+} = require("../services/writingAssessmentService");
 const {
     checkWritingAccess,
     consumeWritingCheck
@@ -10,71 +17,47 @@ const {
 
 const router = express.Router();
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
-const client = OPENAI_API_KEY
-    ? new OpenAI({ apiKey: OPENAI_API_KEY })
-    : null;
+const client = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
-const RESPONSE_SCHEMA = {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-        estimated_band: { type: "number", minimum: 0, maximum: 9 },
-        grammar_feedback: { type: "string" },
-        vocabulary_feedback: { type: "string" },
-        coherence_feedback: { type: "string" },
-        improvement_tips: { type: "string" }
-    },
-    required: [
-        "estimated_band",
-        "grammar_feedback",
-        "vocabulary_feedback",
-        "coherence_feedback",
-        "improvement_tips"
-    ]
-};
+const normalizeText = (value, fallback = "") =>
+    typeof value === "string" ? value.trim() : fallback;
 
-const buildPrompt = ({ essayText, taskType }) => {
-    return `
-You are an IELTS Writing examiner.
+const buildAttemptFilter = ({ userId, writingId, attemptKey }) => {
+    const filter = { userId };
 
-Evaluate the essay and return ONLY valid JSON.
-
-Task type: ${taskType}
-
-Essay:
-${essayText.trim()}
-`;
-};
-
-const toStringList = (value) => {
-    if (Array.isArray(value)) {
-        return value.map((item) => String(item).trim()).filter(Boolean);
+    if (normalizeText(attemptKey)) {
+        filter.attemptKey = normalizeText(attemptKey);
+    } else if (writingId) {
+        filter.writingId = writingId;
     }
 
-    if (!value) return [];
-
-    return String(value)
-        .split(/\n+|•|-/g)
-        .map((item) => item.trim())
-        .filter(Boolean);
+    return filter;
 };
 
 router.post("/ai-check", auth, async (req, res) => {
     try {
-        // API KEY CHECK
-        if (!OPENAI_API_KEY) {
+        if (!OPENAI_API_KEY || !client) {
             return res.status(500).json({
                 message: "OPENAI_API_KEY sozlanmagan"
             });
         }
 
-        const { essayText, taskType } = req.body || {};
+        const {
+            essayText,
+            taskType,
+            question,
+            prompt,
+            testName,
+            writingId,
+            attemptKey,
+            language
+        } = req.body || {};
 
-        // VALIDATION
-        if (!essayText || typeof essayText !== "string" || !essayText.trim()) {
+        const cleanEssay = normalizeText(essayText);
+        if (!cleanEssay) {
             return res.status(400).json({
                 message: "essayText kerak"
             });
@@ -95,6 +78,7 @@ router.post("/ai-check", auth, async (req, res) => {
 
         const access = await checkWritingAccess({
             user,
+            writingId,
             taskType
         });
 
@@ -103,79 +87,74 @@ router.post("/ai-check", auth, async (req, res) => {
                 await user.save();
             }
 
-            return res.status(access.status || 403).json({ message: access.message });
-        }
-
-        const prompt = buildPrompt({ essayText, taskType });
-
-        // OPENAI CALL
-        const aiResponse = await client.responses.create({
-            model: OPENAI_MODEL,
-            input: prompt,
-            temperature: 0.2,
-            text: {
-                format: {
-                    type: "json_schema",
-                    name: "ielts_writing_result",
-                    strict: true,
-                    schema: RESPONSE_SCHEMA
-                }
-            }
-        });
-
-        // 🔥 ENG MUHIM JOY
-        const result = aiResponse.output_parsed;
-
-        if (!result) {
-            console.error("AI response:", aiResponse);
-            return res.status(500).json({
-                message: "AI javobi parse bo'lmadi"
+            return res.status(access.status || 403).json({
+                message: access.message
             });
         }
 
-        // Normalize to satisfy WritingResult schema + UI expectations
-        if (result.estimated_band != null && result.band_score == null) {
-            result.band_score = result.estimated_band;
-        }
-
-        const storedResult = {
-            band_score: result.band_score,
-            grammar_feedback: toStringList(result.grammar_feedback),
-            improvement_tips: toStringList(result.improvement_tips)
-        };
+        const cleanQuestion = normalizeText(question || prompt);
+        const assessment = await gradeWritingEssay({
+            client,
+            model: OPENAI_MODEL,
+            essay: cleanEssay,
+            taskType,
+            question: cleanQuestion,
+            language
+        });
 
         if (access.shouldConsume) {
             consumeWritingCheck(user);
         }
 
-        // SAVE TO DB
-        await Promise.all([
-            user.isModified() ? user.save() : Promise.resolve(),
-            WritingResult.create({
+        const savedDoc = await WritingResult.create(
+            createStoredWritingResultPayload({
                 userId: req.user.id,
-                essayText: essayText.trim(),
+                writingId: writingId || null,
+                attemptKey,
+                testName: normalizeText(testName) || "Writing Test",
                 taskType,
-                result: storedResult
+                question: cleanQuestion,
+                essay: cleanEssay,
+                assessment
+            })
+        );
+
+        const filter = buildAttemptFilter({
+            userId: req.user.id,
+            writingId: writingId || null,
+            attemptKey
+        });
+
+        const [task1Doc, task2Doc] = await Promise.all([
+            WritingResult.findOne({ ...filter, taskType: "task1" }).sort({
+                createdAt: -1
+            }),
+            WritingResult.findOne({ ...filter, taskType: "task2" }).sort({
+                createdAt: -1
             })
         ]);
 
+        let overall = null;
+        if (task1Doc && task2Doc) {
+            overall = buildOverallAssessmentFromTasks(task1Doc, task2Doc);
+        }
+
+        await (user.isModified() ? user.save() : Promise.resolve());
+
         return res.json({
             success: true,
-            result
+            result: normalizeStoredWritingResult(savedDoc),
+            overall
         });
-
     } catch (err) {
         console.error("AI writing check error:", err);
 
-        if (err?.status) {
-            return res.status(err.status).json({
-                message: "OpenAI API xatosi",
-                details: err.message || "Unknown error"
-            });
-        }
-
-        return res.status(500).json({
-            message: "Server xatosi"
+        const status = err.status || 500;
+        return res.status(status).json({
+            message:
+                err.exposeToClient || status < 500
+                    ? err.message
+                    : "Writing AI check failed. Please try again."
         });
     }
 });
@@ -193,19 +172,7 @@ router.get("/ai-results", auth, async (req, res) => {
             .sort({ createdAt: -1 })
             .lean();
 
-        for (const r of results) {
-            if (r.result) {
-                if (r.result.estimated_band == null && r.result.band_score != null) {
-                    r.result.estimated_band = r.result.band_score;
-                }
-                if (r.result.band_score == null && r.result.estimated_band != null) {
-                    r.result.band_score = r.result.estimated_band;
-                }
-            }
-        }
-
-        return res.json(results);
-
+        return res.json(results.map((item) => normalizeStoredWritingResult(item)));
     } catch (err) {
         console.error("AI writing results error:", err);
         return res.status(500).json({

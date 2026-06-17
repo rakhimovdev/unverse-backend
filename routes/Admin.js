@@ -13,6 +13,7 @@ const ScoreW = require("../models/ScoreW");
 const Result = require("../models/Result");
 const WritingResult = require("../models/WritingResult");
 const { getAdminResults } = require("../controllers/resultController");
+const { normalizeStoredWritingResult } = require("../services/writingAssessmentService");
 const { serializeUser } = require("../utils/userSerializer");
 const {
     applyProDuration,
@@ -350,22 +351,11 @@ router.get("/mooc-students/:id/scores", auth, adminOnly, async (req, res) => {
             ScoreW.find({ student: student._id }).sort({ createdAt: -1 })
         ]);
 
-        for (const r of writingAi) {
-            if (r.result) {
-                if (r.result.estimated_band == null && r.result.band_score != null) {
-                    r.result.estimated_band = r.result.band_score;
-                }
-                if (r.result.band_score == null && r.result.estimated_band != null) {
-                    r.result.band_score = r.result.estimated_band;
-                }
-            }
-        }
-
         res.json({
             student,
             reading,
             listening,
-            writingAi,
+            writingAi: writingAi.map((item) => normalizeStoredWritingResult(item)),
             writingScores
         });
     } catch (err) {

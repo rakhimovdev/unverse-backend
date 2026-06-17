@@ -69,7 +69,10 @@ const checkWritingAccess = async ({
                 WritingResult.exists({
                     userId: user._id,
                     writingId,
-                    taskType: { $ne: taskType },
+                    taskType: {
+                        $in: ["task1", "task2"],
+                        $ne: taskType
+                    },
                     createdAt: { $gte: startOfToday }
                 }),
                 WritingResult.exists({

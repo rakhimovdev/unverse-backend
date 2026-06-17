@@ -1,5 +1,35 @@
 const mongoose = require("mongoose");
 
+const ScoreSchema = new mongoose.Schema(
+    {
+        taskResponse: { type: Number, default: null },
+        coherenceCohesion: { type: Number, default: null },
+        lexicalResource: { type: Number, default: null },
+        grammarRangeAccuracy: { type: Number, default: null },
+        overall: { type: Number, default: null }
+    },
+    { _id: false }
+);
+
+const FeedbackSchema = new mongoose.Schema(
+    {
+        strengths: { type: [String], default: [] },
+        weaknesses: { type: [String], default: [] },
+        improvementTips: { type: [String], default: [] }
+    },
+    { _id: false }
+);
+
+const CriterionFeedbackSchema = new mongoose.Schema(
+    {
+        taskResponse: { type: String, default: "" },
+        coherenceCohesion: { type: String, default: "" },
+        lexicalResource: { type: String, default: "" },
+        grammarRangeAccuracy: { type: String, default: "" }
+    },
+    { _id: false }
+);
+
 const WritingResultSchema = new mongoose.Schema(
     {
         userId: {
@@ -17,6 +47,11 @@ const WritingResultSchema = new mongoose.Schema(
             default: "",
             trim: true
         },
+        testName: {
+            type: String,
+            default: "",
+            trim: true
+        },
 
         essayText: {
             type: String,
@@ -25,9 +60,22 @@ const WritingResultSchema = new mongoose.Schema(
             },
             default: ""
         },
+        essay: {
+            type: String,
+            default: ""
+        },
         prompt: {
             type: String,
             default: ""
+        },
+        question: {
+            type: String,
+            default: ""
+        },
+        wordCount: {
+            type: Number,
+            default: 0,
+            min: 0
         },
 
         taskType: {
@@ -35,11 +83,23 @@ const WritingResultSchema = new mongoose.Schema(
             enum: ["task1", "task2", "overall"],
             required: true
         },
+        scores: {
+            type: ScoreSchema,
+            default: () => ({})
+        },
+        feedback: {
+            type: FeedbackSchema,
+            default: () => ({})
+        },
+        criterionFeedback: {
+            type: CriterionFeedbackSchema,
+            default: () => ({})
+        },
 
         result: {
             band_score: {
                 type: Number,
-                required: true
+                default: null
             },
 
             grammar_feedback: {

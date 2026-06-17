@@ -1,6 +1,10 @@
 const Result = require("../models/Result");
 const WritingResult = require("../models/WritingResult");
 const {
+    buildOverallAssessmentFromTasks,
+    normalizeStoredWritingResult
+} = require("./writingAssessmentService");
+const {
     averageBands,
     roundToHalfBand
 } = require("../utils/ieltsBands");
@@ -51,17 +55,45 @@ const normalizeReviewItem = (item, index, labelPrefix) => ({
 });
 
 const buildTaskPayload = (taskDoc) => {
-    const result = taskDoc?.result || {};
+    const task = normalizeStoredWritingResult(taskDoc);
+    const result = task?.result || {};
 
     return {
-        bandScore: toFiniteNumber(result.band_score, null),
-        essayText: normalizeText(taskDoc?.essayText),
-        prompt: normalizeText(taskDoc?.prompt),
+        bandScore:
+            toFiniteNumber(task?.scores?.overall, null) ??
+            toFiniteNumber(result.band_score, null),
+        essayText: normalizeText(task?.essay),
+        prompt: normalizeText(task?.question || task?.prompt),
+        question: normalizeText(task?.question || task?.prompt),
+        wordCount: toFiniteNumber(task?.wordCount, 0) || 0,
+        taskResponseScore: toFiniteNumber(task?.scores?.taskResponse, null),
+        coherenceCohesionScore: toFiniteNumber(
+            task?.scores?.coherenceCohesion,
+            null
+        ),
+        lexicalResourceScore: toFiniteNumber(task?.scores?.lexicalResource, null),
+        grammarRangeAccuracyScore: toFiniteNumber(
+            task?.scores?.grammarRangeAccuracy,
+            null
+        ),
+        strengths: normalizeList(task?.feedback?.strengths),
         grammarFeedback: normalizeList(result.grammar_feedback),
         vocabularyFeedback: normalizeList(result.vocabulary_feedback),
         coherenceFeedback: normalizeList(result.coherence_feedback),
-        weaknesses: normalizeList(result.weaknesses),
-        improvementTips: normalizeList(result.improvement_tips),
+        weaknesses: normalizeList(task?.feedback?.weaknesses || result.weaknesses),
+        improvementTips: normalizeList(
+            task?.feedback?.improvementTips || result.improvement_tips
+        ),
+        criterionFeedback: {
+            taskResponse: normalizeText(task?.criterionFeedback?.taskResponse),
+            coherenceCohesion: normalizeText(
+                task?.criterionFeedback?.coherenceCohesion
+            ),
+            lexicalResource: normalizeText(task?.criterionFeedback?.lexicalResource),
+            grammarRangeAccuracy: normalizeText(
+                task?.criterionFeedback?.grammarRangeAccuracy
+            )
+        },
         finalSummary: normalizeText(result.final_summary)
     };
 };
@@ -164,12 +196,16 @@ const saveListeningResult = async ({
 
 const buildWritingSummary = (task1, task2) => {
     const summaries = [task1?.finalSummary, task2?.finalSummary].filter(Boolean);
+    const strengthPool = [...(task1?.strengths || []), ...(task2?.strengths || [])];
     const weaknessPool = [...(task1?.weaknesses || []), ...(task2?.weaknesses || [])];
     const tipPool = [...(task1?.improvementTips || []), ...(task2?.improvementTips || [])];
 
     if (summaries.length) return summaries.join(" ");
-    if (weaknessPool.length || tipPool.length) {
+    if (strengthPool.length || weaknessPool.length || tipPool.length) {
         const parts = [];
+        if (strengthPool.length) {
+            parts.push(`Strengths: ${strengthPool.slice(0, 3).join("; ")}.`);
+        }
         if (weaknessPool.length) {
             parts.push(`Main weaknesses: ${weaknessPool.slice(0, 3).join("; ")}.`);
         }
@@ -214,9 +250,10 @@ const syncWritingResult = async ({
 
     const task1 = buildTaskPayload(task1Doc);
     const task2 = buildTaskPayload(task2Doc);
-    const weightedBand = roundToHalfBand(
-        (Number(task1.bandScore) + 2 * Number(task2.bandScore)) / 3
-    );
+    const overallAssessment = buildOverallAssessmentFromTasks(task1Doc, task2Doc);
+    const weightedBand =
+        toFiniteNumber(overallAssessment?.scores?.overall, null) ??
+        roundToHalfBand((Number(task1.bandScore) + 2 * Number(task2.bandScore)) / 3);
     const overallBand =
         weightedBand != null
             ? weightedBand
