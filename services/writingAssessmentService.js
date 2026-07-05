@@ -82,74 +82,6 @@ const WRITING_RESPONSE_SCHEMA = {
     ]
 };
 
-const STOP_WORDS = new Set([
-    "the",
-    "and",
-    "that",
-    "this",
-    "with",
-    "from",
-    "into",
-    "onto",
-    "about",
-    "there",
-    "their",
-    "they",
-    "them",
-    "then",
-    "than",
-    "have",
-    "has",
-    "had",
-    "were",
-    "was",
-    "will",
-    "would",
-    "could",
-    "should",
-    "because",
-    "while",
-    "where",
-    "which",
-    "what",
-    "when",
-    "your",
-    "essay",
-    "task",
-    "question",
-    "write",
-    "words",
-    "word",
-    "about",
-    "into",
-    "through",
-    "over",
-    "under",
-    "between",
-    "among",
-    "after",
-    "before",
-    "also",
-    "very",
-    "more",
-    "most",
-    "such",
-    "many",
-    "much",
-    "some",
-    "only",
-    "just",
-    "been",
-    "being",
-    "does",
-    "did",
-    "each",
-    "other",
-    "than",
-    "students",
-    "student"
-]);
-
 const normalizeText = (value, fallback = "") =>
     typeof value === "string" ? value.trim() : fallback;
 
@@ -207,31 +139,6 @@ const countWords = (text = "") => {
     return matches ? matches.length : 0;
 };
 
-const extractWords = (text = "") =>
-    String(text)
-        .toLowerCase()
-        .match(/[a-z]+(?:['’-][a-z]+)*/g) || [];
-
-const splitParagraphs = (text = "") =>
-    String(text)
-        .split(/\r?\n\s*\r?\n/)
-        .map((part) => part.trim())
-        .filter(Boolean);
-
-const splitSentences = (text = "") =>
-    String(text)
-        .replace(/\s+/g, " ")
-        .split(/(?<=[.!?])\s+/)
-        .map((part) => part.trim())
-        .filter(Boolean);
-
-const extractPromptKeywords = (question = "") =>
-    uniqueList(
-        extractWords(question).filter(
-            (word) => word.length > 3 && !STOP_WORDS.has(word)
-        )
-    );
-
 const averageScores = (scores = {}) => {
     const values = [
         scores.taskResponse,
@@ -247,87 +154,7 @@ const averageScores = (scores = {}) => {
     return values.reduce((sum, value) => sum + value, 0) / 4;
 };
 
-const buildQualityFlags = ({ essay, question, taskType, wordCount }) => {
-    const minWords = MIN_WORDS_BY_TASK[taskType] || 0;
-    const shortfall = Math.max(0, minWords - wordCount);
-    const shortfallRatio = minWords ? shortfall / minWords : 0;
-    const text = normalizeText(essay);
-    const lowerEssay = text.toLowerCase();
-    const paragraphs = splitParagraphs(text);
-    const sentences = splitSentences(text);
-    const words = extractWords(text);
-    const contentWords = words.filter(
-        (word) => word.length > 2 && !STOP_WORDS.has(word)
-    );
-    const promptKeywords = extractPromptKeywords(question);
-
-    const wordFrequency = new Map();
-    for (const word of contentWords) {
-        wordFrequency.set(word, (wordFrequency.get(word) || 0) + 1);
-    }
-
-    const uniqueWordRatio = contentWords.length
-        ? new Set(contentWords).size / contentWords.length
-        : 1;
-    const repeatedWords = [...wordFrequency.values()].filter((count) => count >= 4).length;
-    const dominantWordShare = contentWords.length
-        ? Math.max(...wordFrequency.values(), 0) / contentWords.length
-        : 0;
-
-    const promptKeywordMatches = promptKeywords.filter((keyword) =>
-        lowerEssay.includes(keyword)
-    ).length;
-    const promptCoverage = promptKeywords.length
-        ? promptKeywordMatches / promptKeywords.length
-        : 1;
-
-    const missingEndingPunctuation = sentences.filter(
-        (sentence) => !/[.!?]["')\]]?$/.test(sentence)
-    ).length;
-    const lowercaseSentenceStarts = sentences.filter((sentence) =>
-        /^[a-z]/.test(sentence)
-    ).length;
-    const repeatedConsecutiveWords =
-        (lowerEssay.match(/\b([a-z]+)\s+\1\b/g) || []).length;
-    const lowercaseStandaloneI = (text.match(/\bi\b/g) || []).length;
-    const missingPunctuationRatio = sentences.length
-        ? missingEndingPunctuation / sentences.length
-        : 0;
-    const lowercaseStartRatio = sentences.length
-        ? lowercaseSentenceStarts / sentences.length
-        : 0;
-
-    const requiredParagraphs = taskType === "task2" ? 3 : 2;
-    const poorParagraphing = paragraphs.length < requiredParagraphs;
-
-    return {
-        minWords,
-        shortfallRatio,
-        underLength: wordCount < minWords,
-        veryShort: wordCount < minWords * 0.8,
-        severelyShort: wordCount < minWords * 0.65,
-        repeatedGrammarErrors:
-            repeatedConsecutiveWords >= 2 ||
-            lowercaseStandaloneI >= 3 ||
-            (missingPunctuationRatio >= 0.4 && sentences.length >= 3) ||
-            (lowercaseStartRatio >= 0.4 && sentences.length >= 3),
-        unclearTaskResponse:
-            (promptKeywords.length >= 4 && promptCoverage < 0.2) ||
-            wordCount < minWords * 0.6,
-        poorlyOrganized:
-            poorParagraphing ||
-            (paragraphs.length === 1 && sentences.length >= requiredParagraphs + 1),
-        basicOrRepetitiveVocabulary:
-            (contentWords.length >= 40 && uniqueWordRatio < 0.45) ||
-            dominantWordShare > 0.1 ||
-            repeatedWords >= 4,
-        promptCoverage,
-        paragraphCount: paragraphs.length,
-        uniqueWordRatio
-    };
-};
-
-const applyScoreGuards = (scores, flags) => {
+const applyScoreGuards = (scores) => {
     const next = {
         taskResponse: normalizeCriterionBand(scores.taskResponse),
         coherenceCohesion: normalizeCriterionBand(scores.coherenceCohesion),
@@ -339,41 +166,6 @@ const applyScoreGuards = (scores, flags) => {
         Object.values(next).some((value) => value == null)
     ) {
         return null;
-    }
-
-    if (flags.underLength) {
-        const penalty =
-            flags.severelyShort ? 2 : flags.veryShort ? 1.5 : flags.shortfallRatio >= 0.1 ? 1 : 0.5;
-
-        next.taskResponse = Math.max(0, next.taskResponse - penalty);
-        next.taskResponse = Math.min(next.taskResponse, flags.severelyShort ? 5.5 : 6);
-
-        if (flags.veryShort) {
-            next.coherenceCohesion = Math.min(next.coherenceCohesion, 6);
-            next.lexicalResource = Math.min(next.lexicalResource, 6.5);
-        }
-
-        if (flags.severelyShort) {
-            next.coherenceCohesion = Math.min(next.coherenceCohesion, 5.5);
-            next.lexicalResource = Math.min(next.lexicalResource, 6);
-            next.grammarRangeAccuracy = Math.min(next.grammarRangeAccuracy, 6);
-        }
-    }
-
-    if (flags.repeatedGrammarErrors) {
-        next.grammarRangeAccuracy = Math.min(next.grammarRangeAccuracy, 6.5);
-    }
-
-    if (flags.unclearTaskResponse) {
-        next.taskResponse = Math.min(next.taskResponse, 6);
-    }
-
-    if (flags.poorlyOrganized) {
-        next.coherenceCohesion = Math.min(next.coherenceCohesion, 6);
-    }
-
-    if (flags.basicOrRepetitiveVocabulary) {
-        next.lexicalResource = Math.min(next.lexicalResource, 6.5);
     }
 
     return {
@@ -435,29 +227,41 @@ const buildPrompt = ({ essay, taskType, question, language, retry = false }) => 
     const lang = String(language || "en").trim().toLowerCase();
     const feedbackLanguage = lang === "uz" ? "Uzbek" : "English";
     const minWords = MIN_WORDS_BY_TASK[taskType] || 0;
+    const criterionLabel = taskType === "task1" ? "Task Achievement" : "Task Response";
+    const essayWordCount = countWords(essay);
 
     return `
-You are a strict IELTS Writing examiner.
+You are an official IELTS Writing examiner.
 Return JSON only. Do not include markdown, code fences, or extra text.
 Write all feedback strings in ${feedbackLanguage}.
 
-Evaluate the essay using the official IELTS Writing criteria only:
-1. Task Response / Task Achievement
+Evaluate the essay strictly according to the official IELTS Writing Band Descriptors for:
+1. ${criterionLabel}
 2. Coherence and Cohesion
 3. Lexical Resource
 4. Grammatical Range and Accuracy
 
 Scoring rules you must follow:
 - Score each criterion from 0 to 9.
-- The essay is ${taskType}. Minimum word count is ${minWords}.
-- If the essay is under the minimum word count, lower the score, especially Task Response / Task Achievement.
-- Do not give high scores to essays that are too short.
-- If grammar has many repeated errors, Grammar must not exceed 6.5.
-- If the essay does not clearly answer the question, Task Response must not exceed 6.
-- If paragraphs are missing or ideas are poorly organized, Coherence and Cohesion must not exceed 6.
-- If vocabulary is basic or repetitive, Lexical Resource must not exceed 6.5.
+- The essay is ${taskType}. Minimum word count is ${minWords}. The essay contains ${essayWordCount} words.
+- Use only evidence from the essay and the question.
+- Do not guess scores.
+- Do not automatically default any criterion to Band 6 or 6.5.
+- Do not deduct twice for the same problem.
+- Vocabulary issues affect Lexical Resource only.
+- Grammar issues affect Grammatical Range and Accuracy only.
+- If the essay is under the minimum word count, reflect that mainly in ${criterionLabel}.
 - Keep feedback concise, specific, and evidence-based.
+- In each criterionFeedback field, mention concrete reasons drawn from the essay.
 - Set scores.overall to the average of the four criterion scores before IELTS rounding.
+
+Before returning the final scores, perform this verification silently:
+1. Assign preliminary band scores.
+2. Re-read the essay using the official IELTS descriptors.
+3. Check whether every score and every deduction has sufficient evidence in the essay.
+4. If evidence is insufficient, revise the score.
+- Do not reveal these verification steps in the output.
+- Only after verification return the final JSON.
 
 JSON shape:
 {
@@ -538,13 +342,7 @@ const normalizeAssessment = (payload, { taskType, essay, question }) => {
     };
 
     const wordCount = countWords(essay);
-    const flags = buildQualityFlags({
-        essay,
-        question,
-        taskType,
-        wordCount
-    });
-    const guardedScores = applyScoreGuards(baseScores, flags);
+    const guardedScores = applyScoreGuards(baseScores);
 
     if (!guardedScores) {
         const error = new Error("AI did not return all four IELTS criterion scores.");
