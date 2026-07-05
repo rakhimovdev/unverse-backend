@@ -49,6 +49,23 @@ const ListeningResultSchema = new mongoose.Schema(
     { _id: false }
 );
 
+const GrammarCorrectionSchema = new mongoose.Schema(
+    {
+        original: { type: String, default: "", trim: true },
+        correct: { type: String, default: "", trim: true },
+        reason: { type: String, default: "", trim: true }
+    },
+    { _id: false }
+);
+
+const VocabularySuggestionSchema = new mongoose.Schema(
+    {
+        original: { type: String, default: "", trim: true },
+        alternatives: { type: [String], default: [] }
+    },
+    { _id: false }
+);
+
 const WritingTaskSchema = new mongoose.Schema(
     {
         bandScore: { type: Number, default: null },
@@ -56,22 +73,31 @@ const WritingTaskSchema = new mongoose.Schema(
         prompt: { type: String, default: "" },
         question: { type: String, default: "" },
         wordCount: { type: Number, default: 0 },
+        taskType: { type: String, default: "" },
+        taskTypeLabel: { type: String, default: "" },
+        scores: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () => ({})
+        },
+        strengths: { type: [String], default: [] },
+        weaknesses: { type: [String], default: [] },
+        improvementTips: { type: [String], default: [] },
+        criterionFeedback: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () => ({})
+        },
+        grammarCorrections: { type: [GrammarCorrectionSchema], default: [] },
+        vocabularySuggestions: { type: [VocabularySuggestionSchema], default: [] },
+        estimatedExaminerComment: { type: String, default: "" },
+
+        // Legacy compatibility for older synced writing results.
         taskResponseScore: { type: Number, default: null },
         coherenceCohesionScore: { type: Number, default: null },
         lexicalResourceScore: { type: Number, default: null },
         grammarRangeAccuracyScore: { type: Number, default: null },
-        strengths: { type: [String], default: [] },
         grammarFeedback: { type: [String], default: [] },
         vocabularyFeedback: { type: [String], default: [] },
         coherenceFeedback: { type: [String], default: [] },
-        weaknesses: { type: [String], default: [] },
-        improvementTips: { type: [String], default: [] },
-        criterionFeedback: {
-            taskResponse: { type: String, default: "" },
-            coherenceCohesion: { type: String, default: "" },
-            lexicalResource: { type: String, default: "" },
-            grammarRangeAccuracy: { type: String, default: "" }
-        },
         finalSummary: { type: String, default: "" }
     },
     { _id: false }

@@ -10,6 +10,7 @@ const {
     buildOverallAssessmentFromTasks,
     createStoredWritingResultPayload,
     gradeWritingEssay,
+    logWritingDebug,
     normalizeStoredWritingResult
 } = require("../services/writingAssessmentService");
 const {
@@ -20,7 +21,8 @@ const {
 const router = express.Router();
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+const OPENAI_MODEL =
+    process.env.AI_WRITING_MODEL || process.env.OPENAI_MODEL || "gpt-4.1";
 
 const client = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
@@ -183,6 +185,13 @@ router.post("/writing/grade", auth, async (req, res) => {
             language
         });
 
+        logWritingDebug("route-final-assessment", {
+            route: "/ai/writing/grade",
+            model: OPENAI_MODEL,
+            taskType: task,
+            scores: assessment.scores
+        });
+
         if (access.shouldConsume) {
             consumeWritingCheck(user);
         }
@@ -199,6 +208,17 @@ router.post("/writing/grade", auth, async (req, res) => {
         });
 
         const taskDoc = await WritingResult.create(storedPayload);
+        const normalizedTaskDoc = normalizeStoredWritingResult(taskDoc);
+
+        logWritingDebug("mongodb-saved-result", {
+            route: "/ai/writing/grade",
+            taskType: task,
+            savedResult: {
+                id: taskDoc._id,
+                attemptKey: normalizeText(attemptKey),
+                scores: normalizedTaskDoc.scores
+            }
+        });
 
         const attemptFilter = buildAttemptFilter({
             userId: req.user.id,
@@ -236,7 +256,7 @@ router.post("/writing/grade", auth, async (req, res) => {
 
         return res.json({
             success: true,
-            result: normalizeStoredWritingResult(taskDoc),
+            result: normalizedTaskDoc,
             overall
         });
     } catch (err) {
@@ -273,6 +293,28 @@ router.get("/writing/results", auth, async (req, res) => {
         });
     } catch (err) {
         console.error("AI writing results error:", err);
+        return res.status(500).json({
+            message: "Server xatosi"
+        });
+    }
+});
+
+router.get("/ai-results", auth, async (req, res) => {
+    try {
+        const filter = {
+            userId:
+                req.user?.role === "admin" && req.query.userId
+                    ? req.query.userId
+                    : req.user.id
+        };
+
+        const results = await WritingResult.find(filter)
+            .sort({ createdAt: -1 })
+            .lean();
+
+        return res.json(results.map((item) => normalizeStoredWritingResult(item)));
+    } catch (err) {
+        console.error("AI writing alias results error:", err);
         return res.status(500).json({
             message: "Server xatosi"
         });

@@ -1,31 +1,32 @@
 const mongoose = require("mongoose");
 
-const ScoreSchema = new mongoose.Schema(
+const GrammarCorrectionSchema = new mongoose.Schema(
     {
-        taskResponse: { type: Number, default: null },
-        coherenceCohesion: { type: Number, default: null },
-        lexicalResource: { type: Number, default: null },
-        grammarRangeAccuracy: { type: Number, default: null },
-        overall: { type: Number, default: null }
+        original: { type: String, default: "", trim: true },
+        correct: { type: String, default: "", trim: true },
+        reason: { type: String, default: "", trim: true }
     },
     { _id: false }
 );
 
-const FeedbackSchema = new mongoose.Schema(
+const VocabularySuggestionSchema = new mongoose.Schema(
     {
-        strengths: { type: [String], default: [] },
+        original: { type: String, default: "", trim: true },
+        alternatives: { type: [String], default: [] }
+    },
+    { _id: false }
+);
+
+const LegacyResultSchema = new mongoose.Schema(
+    {
+        band_score: { type: Number, default: null },
+        estimated_band: { type: Number, default: null },
+        grammar_feedback: { type: [String], default: [] },
+        vocabulary_feedback: { type: [String], default: [] },
+        coherence_feedback: { type: [String], default: [] },
         weaknesses: { type: [String], default: [] },
-        improvementTips: { type: [String], default: [] }
-    },
-    { _id: false }
-);
-
-const CriterionFeedbackSchema = new mongoose.Schema(
-    {
-        taskResponse: { type: String, default: "" },
-        coherenceCohesion: { type: String, default: "" },
-        lexicalResource: { type: String, default: "" },
-        grammarRangeAccuracy: { type: String, default: "" }
+        improvement_tips: { type: [String], default: [] },
+        final_summary: { type: String, default: "" }
     },
     { _id: false }
 );
@@ -52,7 +53,6 @@ const WritingResultSchema = new mongoose.Schema(
             default: "",
             trim: true
         },
-
         essayText: {
             type: String,
             required: function () {
@@ -77,60 +77,52 @@ const WritingResultSchema = new mongoose.Schema(
             default: 0,
             min: 0
         },
-
         taskType: {
             type: String,
             enum: ["task1", "task2", "overall"],
             required: true
         },
         scores: {
-            type: ScoreSchema,
+            type: mongoose.Schema.Types.Mixed,
             default: () => ({})
         },
-        feedback: {
-            type: FeedbackSchema,
-            default: () => ({})
+        strengths: {
+            type: [String],
+            default: []
+        },
+        weaknesses: {
+            type: [String],
+            default: []
+        },
+        improvementTips: {
+            type: [String],
+            default: []
         },
         criterionFeedback: {
-            type: CriterionFeedbackSchema,
+            type: mongoose.Schema.Types.Mixed,
             default: () => ({})
         },
+        grammarCorrections: {
+            type: [GrammarCorrectionSchema],
+            default: []
+        },
+        vocabularySuggestions: {
+            type: [VocabularySuggestionSchema],
+            default: []
+        },
+        estimatedExaminerComment: {
+            type: String,
+            default: ""
+        },
 
+        // Legacy compatibility for older documents already saved in MongoDB.
+        feedback: {
+            type: mongoose.Schema.Types.Mixed,
+            default: () => ({})
+        },
         result: {
-            band_score: {
-                type: Number,
-                default: null
-            },
-
-            grammar_feedback: {
-                type: [String],
-                default: []
-            },
-
-            vocabulary_feedback: {
-                type: [String],
-                default: []
-            },
-
-            coherence_feedback: {
-                type: [String],
-                default: []
-            },
-
-            weaknesses: {
-                type: [String],
-                default: []
-            },
-
-            improvement_tips: {
-                type: [String],
-                default: []
-            },
-
-            final_summary: {
-                type: String,
-                default: ""
-            }
+            type: LegacyResultSchema,
+            default: () => ({})
         }
     },
     { timestamps: true }

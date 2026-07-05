@@ -1,4 +1,5 @@
 const {
+    roundToNearestHalfBand,
     roundToHalfBand
 } = require("../utils/ieltsBands");
 
@@ -7,80 +8,24 @@ const MIN_WORDS_BY_TASK = {
     task2: 250
 };
 
-const WRITING_RESPONSE_SCHEMA = {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-        taskType: {
-            type: "string",
-            enum: ["task1", "task2"]
-        },
-        wordCount: {
-            type: "integer",
-            minimum: 0
-        },
-        scores: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-                taskResponse: { type: "number", minimum: 0, maximum: 9 },
-                coherenceCohesion: { type: "number", minimum: 0, maximum: 9 },
-                lexicalResource: { type: "number", minimum: 0, maximum: 9 },
-                grammarRangeAccuracy: { type: "number", minimum: 0, maximum: 9 },
-                overall: { type: "number", minimum: 0, maximum: 9 }
-            },
-            required: [
-                "taskResponse",
-                "coherenceCohesion",
-                "lexicalResource",
-                "grammarRangeAccuracy",
-                "overall"
-            ]
-        },
-        feedback: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-                strengths: {
-                    type: "array",
-                    items: { type: "string" }
-                },
-                weaknesses: {
-                    type: "array",
-                    items: { type: "string" }
-                },
-                improvementTips: {
-                    type: "array",
-                    items: { type: "string" }
-                }
-            },
-            required: ["strengths", "weaknesses", "improvementTips"]
-        },
-        criterionFeedback: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-                taskResponse: { type: "string" },
-                coherenceCohesion: { type: "string" },
-                lexicalResource: { type: "string" },
-                grammarRangeAccuracy: { type: "string" }
-            },
-            required: [
-                "taskResponse",
-                "coherenceCohesion",
-                "lexicalResource",
-                "grammarRangeAccuracy"
-            ]
-        }
+const TASK_CONFIG = {
+    task1: {
+        publicTaskType: "Task 1",
+        primaryCriterionKey: "taskAchievement",
+        primaryCriterionLabel: "Task Achievement",
+        scoreKeys: ["taskAchievement", "coherence", "lexical", "grammar"]
     },
-    required: [
-        "taskType",
-        "wordCount",
-        "scores",
-        "feedback",
-        "criterionFeedback"
-    ]
+    task2: {
+        publicTaskType: "Task 2",
+        primaryCriterionKey: "taskResponse",
+        primaryCriterionLabel: "Task Response",
+        scoreKeys: ["taskResponse", "coherence", "lexical", "grammar"]
+    }
 };
+
+const DEFAULT_DEBUG_ENABLED =
+    process.env.NODE_ENV !== "production" &&
+    process.env.WRITING_AI_DEBUG !== "0";
 
 const normalizeText = (value, fallback = "") =>
     typeof value === "string" ? value.trim() : fallback;
@@ -116,20 +61,10 @@ const clampBand = (value) => {
 const normalizeCriterionBand = (value) => {
     const safe = clampBand(value);
     if (safe == null) return null;
-    return roundToHalfBand(safe);
+    return roundToNearestHalfBand(safe);
 };
 
-const roundIeltsOverallBand = (value) => {
-    const safe = clampBand(value);
-    if (safe == null) return null;
-
-    const whole = Math.floor(safe);
-    const fraction = safe - whole;
-
-    if (fraction < 0.25) return whole;
-    if (fraction < 0.75) return whole + 0.5;
-    return Math.min(9, whole + 1);
-};
+const roundIeltsOverallBand = (value) => roundToNearestHalfBand(value);
 
 const countWords = (text = "") => {
     const matches = String(text)
@@ -139,13 +74,114 @@ const countWords = (text = "") => {
     return matches ? matches.length : 0;
 };
 
+const getTaskConfig = (taskType) => TASK_CONFIG[taskType] || null;
+
+const getPublicTaskType = (taskType) =>
+    getTaskConfig(taskType)?.publicTaskType || "Overall";
+
+const isPlainObject = (value) =>
+    Boolean(value) && typeof value === "object" && !Array.isArray(value);
+
+const normalizeGrammarCorrections = (value) => {
+    if (!Array.isArray(value)) return [];
+
+    const seen = new Set();
+    const list = [];
+
+    for (const item of value) {
+        const entry = {
+            original: normalizeText(item?.original),
+            correct: normalizeText(item?.correct),
+            reason: normalizeText(item?.reason)
+        };
+
+        if (!entry.original || !entry.correct || !entry.reason) continue;
+
+        const key = `${entry.original.toLowerCase()}|${entry.correct.toLowerCase()}|${entry.reason.toLowerCase()}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        list.push(entry);
+    }
+
+    return list;
+};
+
+const normalizeVocabularySuggestions = (value) => {
+    if (!Array.isArray(value)) return [];
+
+    const seen = new Set();
+    const list = [];
+
+    for (const item of value) {
+        const original = normalizeText(item?.original);
+        const alternatives = uniqueList(item?.alternatives || []);
+
+        if (!original || !alternatives.length) continue;
+
+        const key = original.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        list.push({
+            original,
+            alternatives
+        });
+    }
+
+    return list;
+};
+
+const normalizeCriterionFeedbackEntry = (value, fallbackBand = null) => {
+    if (isPlainObject(value)) {
+        return {
+            band:
+                normalizeCriterionBand(value.band) ??
+                normalizeCriterionBand(fallbackBand),
+            analysis: normalizeText(value.analysis || value.comment || value.feedback),
+            evidence: uniqueList(value.evidence || [])
+        };
+    }
+
+    const analysis = normalizeText(value);
+    if (!analysis && fallbackBand == null) {
+        return null;
+    }
+
+    return {
+        band: normalizeCriterionBand(fallbackBand),
+        analysis,
+        evidence: []
+    };
+};
+
+const buildImprovementTips = ({
+    weaknesses = [],
+    grammarCorrections = [],
+    vocabularySuggestions = []
+}) =>
+    uniqueList([
+        ...weaknesses,
+        ...grammarCorrections
+            .slice(0, 2)
+            .map((item) => `Change "${item.original}" to "${item.correct}" because ${item.reason}.`),
+        ...vocabularySuggestions
+            .slice(0, 2)
+            .map(
+                (item) =>
+                    `Replace "${item.original}" with ${item.alternatives
+                        .slice(0, 3)
+                        .join(", ")} when the meaning fits better.`
+            )
+    ]).slice(0, 6);
+
 const averageScores = (scores = {}) => {
     const values = [
+        scores.taskAchievement,
         scores.taskResponse,
-        scores.coherenceCohesion,
-        scores.lexicalResource,
-        scores.grammarRangeAccuracy
+        scores.coherence,
+        scores.lexical,
+        scores.grammar
     ]
+        .filter((value) => value != null)
         .map(Number)
         .filter(Number.isFinite);
 
@@ -154,38 +190,19 @@ const averageScores = (scores = {}) => {
     return values.reduce((sum, value) => sum + value, 0) / 4;
 };
 
-const applyScoreGuards = (scores) => {
-    const next = {
-        taskResponse: normalizeCriterionBand(scores.taskResponse),
-        coherenceCohesion: normalizeCriterionBand(scores.coherenceCohesion),
-        lexicalResource: normalizeCriterionBand(scores.lexicalResource),
-        grammarRangeAccuracy: normalizeCriterionBand(scores.grammarRangeAccuracy)
-    };
-
-    if (
-        Object.values(next).some((value) => value == null)
-    ) {
-        return null;
-    }
-
-    return {
-        taskResponse: normalizeCriterionBand(next.taskResponse),
-        coherenceCohesion: normalizeCriterionBand(next.coherenceCohesion),
-        lexicalResource: normalizeCriterionBand(next.lexicalResource),
-        grammarRangeAccuracy: normalizeCriterionBand(next.grammarRangeAccuracy)
-    };
-};
-
 const buildTaskSummary = (assessment) => {
-    const strengths = uniqueList(assessment.feedback?.strengths || []);
-    const weaknesses = uniqueList(assessment.feedback?.weaknesses || []);
-    const tips = uniqueList(assessment.feedback?.improvementTips || []);
-    const taskResponseFeedback = normalizeText(
-        assessment.criterionFeedback?.taskResponse
-    );
+    const strengths = uniqueList(assessment.strengths || []);
+    const weaknesses = uniqueList(assessment.weaknesses || []);
+    const tips = uniqueList(assessment.improvementTips || []);
+    const config = getTaskConfig(assessment.taskType);
+    const primaryEntry = config
+        ? assessment.criterionFeedback?.[config.primaryCriterionKey]
+        : null;
 
     const parts = [
-        `Estimated band ${assessment.scores?.overall ?? "—"} for ${assessment.taskType}.`
+        `Estimated band ${assessment.scores?.overall ?? "—"} for ${getPublicTaskType(
+            assessment.taskType
+        )}.`
     ];
 
     if (strengths.length) {
@@ -196,8 +213,8 @@ const buildTaskSummary = (assessment) => {
         parts.push(`Weaknesses: ${weaknesses.slice(0, 2).join("; ")}.`);
     }
 
-    if (taskResponseFeedback) {
-        parts.push(taskResponseFeedback);
+    if (normalizeText(primaryEntry?.analysis)) {
+        parts.push(primaryEntry.analysis);
     }
 
     if (tips.length) {
@@ -209,93 +226,272 @@ const buildTaskSummary = (assessment) => {
 
 const buildLegacyResultPayload = (assessment) => ({
     band_score: assessment?.scores?.overall ?? null,
-    grammar_feedback: assessment?.criterionFeedback?.grammarRangeAccuracy
-        ? [assessment.criterionFeedback.grammarRangeAccuracy]
-        : [],
-    vocabulary_feedback: assessment?.criterionFeedback?.lexicalResource
-        ? [assessment.criterionFeedback.lexicalResource]
-        : [],
-    coherence_feedback: assessment?.criterionFeedback?.coherenceCohesion
-        ? [assessment.criterionFeedback.coherenceCohesion]
-        : [],
-    weaknesses: uniqueList(assessment?.feedback?.weaknesses || []),
-    improvement_tips: uniqueList(assessment?.feedback?.improvementTips || []),
+    estimated_band: assessment?.scores?.overall ?? null,
     final_summary: buildTaskSummary(assessment)
 });
 
-const buildPrompt = ({ essay, taskType, question, language, retry = false }) => {
+const CRITERION_FEEDBACK_SCHEMA = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+        band: { type: "number", minimum: 0, maximum: 9 },
+        analysis: { type: "string" },
+        evidence: {
+            type: "array",
+            items: { type: "string" }
+        }
+    },
+    required: ["band", "analysis", "evidence"]
+};
+
+const GRAMMAR_CORRECTION_SCHEMA = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+        original: { type: "string" },
+        correct: { type: "string" },
+        reason: { type: "string" }
+    },
+    required: ["original", "correct", "reason"]
+};
+
+const VOCABULARY_SUGGESTION_SCHEMA = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+        original: { type: "string" },
+        alternatives: {
+            type: "array",
+            items: { type: "string" }
+        }
+    },
+    required: ["original", "alternatives"]
+};
+
+const buildWritingResponseSchema = (taskType) => {
+    const config = getTaskConfig(taskType);
+    if (!config) {
+        throw new Error(`Unknown writing task type: ${taskType}`);
+    }
+
+    const primaryKey = config.primaryCriterionKey;
+
+    return {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+            taskType: {
+                type: "string",
+                enum: [config.publicTaskType]
+            },
+            scores: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                    [primaryKey]: { type: "number", minimum: 0, maximum: 9 },
+                    coherence: { type: "number", minimum: 0, maximum: 9 },
+                    lexical: { type: "number", minimum: 0, maximum: 9 },
+                    grammar: { type: "number", minimum: 0, maximum: 9 },
+                    overall: { type: "number", minimum: 0, maximum: 9 }
+                },
+                required: [primaryKey, "coherence", "lexical", "grammar", "overall"]
+            },
+            strengths: {
+                type: "array",
+                items: { type: "string" }
+            },
+            weaknesses: {
+                type: "array",
+                items: { type: "string" }
+            },
+            criterionFeedback: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                    [primaryKey]: CRITERION_FEEDBACK_SCHEMA,
+                    coherence: CRITERION_FEEDBACK_SCHEMA,
+                    lexical: CRITERION_FEEDBACK_SCHEMA,
+                    grammar: CRITERION_FEEDBACK_SCHEMA
+                },
+                required: [primaryKey, "coherence", "lexical", "grammar"]
+            },
+            grammarCorrections: {
+                type: "array",
+                items: GRAMMAR_CORRECTION_SCHEMA
+            },
+            vocabularySuggestions: {
+                type: "array",
+                items: VOCABULARY_SUGGESTION_SCHEMA
+            },
+            estimatedExaminerComment: {
+                type: "string"
+            }
+        },
+        required: [
+            "taskType",
+            "scores",
+            "strengths",
+            "weaknesses",
+            "criterionFeedback",
+            "grammarCorrections",
+            "vocabularySuggestions",
+            "estimatedExaminerComment"
+        ]
+    };
+};
+
+const WRITING_RESPONSE_SCHEMAS = {
+    task1: buildWritingResponseSchema("task1"),
+    task2: buildWritingResponseSchema("task2")
+};
+
+const safeSerializeForLog = (value) => {
+    try {
+        return JSON.stringify(value, null, 2);
+    } catch (error) {
+        return String(value);
+    }
+};
+
+const logWritingDebug = (stage, payload) => {
+    if (!DEFAULT_DEBUG_ENABLED) return;
+    console.log(`[writing-ai:${stage}] ${safeSerializeForLog(payload)}`);
+};
+
+const buildPrompt = ({ essay, taskType, question, language }) => {
+    const config = getTaskConfig(taskType);
     const lang = String(language || "en").trim().toLowerCase();
     const feedbackLanguage = lang === "uz" ? "Uzbek" : "English";
     const minWords = MIN_WORDS_BY_TASK[taskType] || 0;
-    const criterionLabel = taskType === "task1" ? "Task Achievement" : "Task Response";
     const essayWordCount = countWords(essay);
 
     return `
-You are an official IELTS Writing examiner.
-Return JSON only. Do not include markdown, code fences, or extra text.
-Write all feedback strings in ${feedbackLanguage}.
+You are an official IELTS Writing Examiner with over 20 years of experience.
 
-Evaluate the essay strictly according to the official IELTS Writing Band Descriptors for:
-1. ${criterionLabel}
+Your only responsibility is to score this essay exactly according to the official IELTS Writing Band Descriptors.
+
+Return ONLY valid JSON.
+Do not include markdown.
+Do not include code fences.
+Do not include explanations outside the JSON.
+Write every feedback string in ${feedbackLanguage}.
+
+Score ONLY these four criteria:
+1. ${config.primaryCriterionLabel}
 2. Coherence and Cohesion
 3. Lexical Resource
 4. Grammatical Range and Accuracy
 
-Scoring rules you must follow:
-- Score each criterion from 0 to 9.
-- The essay is ${taskType}. Minimum word count is ${minWords}. The essay contains ${essayWordCount} words.
-- Use only evidence from the essay and the question.
-- Do not guess scores.
-- Do not automatically default any criterion to Band 6 or 6.5.
-- Do not deduct twice for the same problem.
-- Vocabulary issues affect Lexical Resource only.
-- Grammar issues affect Grammatical Range and Accuracy only.
-- If the essay is under the minimum word count, reflect that mainly in ${criterionLabel}.
-- Keep feedback concise, specific, and evidence-based.
-- In each criterionFeedback field, mention concrete reasons drawn from the essay.
-- Set scores.overall to the average of the four criterion scores before IELTS rounding.
+Very important scoring rules:
+- Use only evidence from the essay and the task question.
+- Never guess scores.
+- Never default to Band 6 or Band 6.5.
+- Do not avoid giving Band 8 if the essay clearly deserves it.
+- Do not deduct twice for the same issue.
+- Do not reduce Grammar because of vocabulary mistakes.
+- Do not reduce Coherence because of grammar mistakes.
+- Every deduction must be supported by evidence from the essay.
+- If there is no evidence, do not deduct.
+- If the essay is under the minimum word count, reflect that mainly in ${config.primaryCriterionLabel}.
+- The essay is ${config.publicTaskType}. Minimum word count is ${minWords}. The essay contains ${essayWordCount} words.
 
-Before returning the final scores, perform this verification silently:
-1. Assign preliminary band scores.
-2. Re-read the essay using the official IELTS descriptors.
-3. Check whether every score and every deduction has sufficient evidence in the essay.
-4. If evidence is insufficient, revise the score.
-- Do not reveal these verification steps in the output.
-- Only after verification return the final JSON.
+Before producing the final scores, perform an internal verification:
+Step 1: Assign preliminary band scores.
+Step 2: Re-read the essay using the official IELTS descriptors.
+Step 3: Check whether every score has sufficient evidence.
+Step 4: If evidence is insufficient, revise the score.
+Only after verification return the final JSON.
 
-JSON shape:
+Feedback rules:
+- Strengths and weaknesses must be specific to this essay.
+- Generic advice is not allowed.
+- criterionFeedback.analysis must explain the band logically.
+- criterionFeedback.evidence must quote or reference exact phrases from the essay when relevant.
+- grammarCorrections must use exact original phrases from the essay.
+- vocabularySuggestions must replace exact weak or repetitive wording from the essay.
+
+Required JSON shape:
 {
-  "taskType": "task1 or task2",
-  "wordCount": 0,
+  "taskType": "${config.publicTaskType}",
   "scores": {
-    "taskResponse": 0,
-    "coherenceCohesion": 0,
-    "lexicalResource": 0,
-    "grammarRangeAccuracy": 0,
+    "${config.primaryCriterionKey}": 0,
+    "coherence": 0,
+    "lexical": 0,
+    "grammar": 0,
     "overall": 0
   },
-  "feedback": {
-    "strengths": [],
-    "weaknesses": [],
-    "improvementTips": []
-  },
+  "strengths": [],
+  "weaknesses": [],
   "criterionFeedback": {
-    "taskResponse": "",
-    "coherenceCohesion": "",
-    "lexicalResource": "",
-    "grammarRangeAccuracy": ""
-  }
+    "${config.primaryCriterionKey}": {
+      "band": 0,
+      "analysis": "",
+      "evidence": []
+    },
+    "coherence": {
+      "band": 0,
+      "analysis": "",
+      "evidence": []
+    },
+    "lexical": {
+      "band": 0,
+      "analysis": "",
+      "evidence": []
+    },
+    "grammar": {
+      "band": 0,
+      "analysis": "",
+      "evidence": []
+    }
+  },
+  "grammarCorrections": [
+    {
+      "original": "",
+      "correct": "",
+      "reason": ""
+    }
+  ],
+  "vocabularySuggestions": [
+    {
+      "original": "",
+      "alternatives": ["", "", ""]
+    }
+  ],
+  "estimatedExaminerComment": ""
 }
 
-Task type: ${taskType}
-Question:
+Task question:
 ${question || "No question provided."}
 
 Essay:
 ${essay}
+`.trim();
+};
 
-${retry ? "Your previous reply was invalid JSON. Return valid JSON only." : ""}
-`;
+const buildJsonRepairPrompt = ({
+    essay,
+    taskType,
+    question,
+    language,
+    previousResponse
+}) => {
+    const basePrompt = buildPrompt({
+        essay,
+        taskType,
+        question,
+        language
+    });
+
+    return `
+${basePrompt}
+
+Your previous reply was invalid JSON or did not match the required schema.
+Repair the response and return ONLY valid JSON that matches the required shape exactly.
+If the previous reply is unusable, re-evaluate the essay from scratch.
+
+Previous invalid reply:
+${previousResponse || "[empty response]"}
+`.trim();
 };
 
 const extractResponseText = (response) => {
@@ -326,55 +522,140 @@ const tryParseJson = (text = "") => {
         .replace(/\s*```$/i, "")
         .trim();
 
-    try {
-        return JSON.parse(withoutFence);
-    } catch (error) {
-        return null;
+    const candidates = [withoutFence];
+    const firstBrace = withoutFence.indexOf("{");
+    const lastBrace = withoutFence.lastIndexOf("}");
+
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+        candidates.push(withoutFence.slice(firstBrace, lastBrace + 1));
     }
+
+    for (const candidate of candidates) {
+        try {
+            return JSON.parse(candidate);
+        } catch (error) {
+            // Continue trying additional slices.
+        }
+    }
+
+    return null;
 };
 
-const normalizeAssessment = (payload, { taskType, essay, question }) => {
-    const baseScores = {
-        taskResponse: payload?.scores?.taskResponse,
-        coherenceCohesion: payload?.scores?.coherenceCohesion,
-        lexicalResource: payload?.scores?.lexicalResource,
-        grammarRangeAccuracy: payload?.scores?.grammarRangeAccuracy
+const ensureRequiredScores = (scores, taskType) => {
+    const config = getTaskConfig(taskType);
+    if (!config) return null;
+
+    const required = {
+        taskAchievement:
+            taskType === "task1" ? normalizeCriterionBand(scores.taskAchievement) : null,
+        taskResponse:
+            taskType === "task2" ? normalizeCriterionBand(scores.taskResponse) : null,
+        coherence: normalizeCriterionBand(scores.coherence),
+        lexical: normalizeCriterionBand(scores.lexical),
+        grammar: normalizeCriterionBand(scores.grammar)
     };
 
-    const wordCount = countWords(essay);
-    const guardedScores = applyScoreGuards(baseScores);
+    const missingPrimary =
+        taskType === "task1"
+            ? required.taskAchievement == null
+            : required.taskResponse == null;
 
-    if (!guardedScores) {
-        const error = new Error("AI did not return all four IELTS criterion scores.");
-        error.status = 502;
+    if (
+        missingPrimary ||
+        required.coherence == null ||
+        required.lexical == null ||
+        required.grammar == null
+    ) {
+        return null;
+    }
+
+    return required;
+};
+
+const normalizeAssessment = (payload, { taskType, essay }) => {
+    const config = getTaskConfig(taskType);
+    if (!config) {
+        const error = new Error(`Unknown writing task type: ${taskType}`);
+        error.status = 500;
         throw error;
     }
 
-    const rawAverage = averageScores(guardedScores);
+    const baseScores = ensureRequiredScores(
+        {
+            taskAchievement: payload?.scores?.taskAchievement,
+            taskResponse: payload?.scores?.taskResponse,
+            coherence: payload?.scores?.coherence,
+            lexical: payload?.scores?.lexical,
+            grammar: payload?.scores?.grammar
+        },
+        taskType
+    );
+
+    if (!baseScores) {
+        const error = new Error("AI did not return all required IELTS criterion scores.");
+        error.status = 502;
+        error.exposeToClient = true;
+        throw error;
+    }
+
+    const rawAverage = averageScores(baseScores);
     const overall = roundIeltsOverallBand(rawAverage);
+    const grammarCorrections = normalizeGrammarCorrections(payload?.grammarCorrections);
+    const vocabularySuggestions = normalizeVocabularySuggestions(
+        payload?.vocabularySuggestions
+    );
+    const strengths = uniqueList(payload?.strengths || []);
+    const weaknesses = uniqueList(payload?.weaknesses || []);
+    const improvementTips = buildImprovementTips({
+        weaknesses,
+        grammarCorrections,
+        vocabularySuggestions
+    });
+
+    const criterionFeedback = {
+        taskAchievement:
+            taskType === "task1"
+                ? normalizeCriterionFeedbackEntry(
+                      payload?.criterionFeedback?.taskAchievement,
+                      baseScores.taskAchievement
+                  )
+                : null,
+        taskResponse:
+            taskType === "task2"
+                ? normalizeCriterionFeedbackEntry(
+                      payload?.criterionFeedback?.taskResponse,
+                      baseScores.taskResponse
+                  )
+                : null,
+        coherence: normalizeCriterionFeedbackEntry(
+            payload?.criterionFeedback?.coherence,
+            baseScores.coherence
+        ),
+        lexical: normalizeCriterionFeedbackEntry(
+            payload?.criterionFeedback?.lexical,
+            baseScores.lexical
+        ),
+        grammar: normalizeCriterionFeedbackEntry(
+            payload?.criterionFeedback?.grammar,
+            baseScores.grammar
+        )
+    };
 
     return {
         taskType,
-        wordCount,
+        taskTypeLabel: config.publicTaskType,
+        wordCount: countWords(essay),
         scores: {
-            ...guardedScores,
+            ...baseScores,
             overall
         },
-        feedback: {
-            strengths: uniqueList(payload?.feedback?.strengths || []),
-            weaknesses: uniqueList(payload?.feedback?.weaknesses || []),
-            improvementTips: uniqueList(payload?.feedback?.improvementTips || [])
-        },
-        criterionFeedback: {
-            taskResponse: normalizeText(payload?.criterionFeedback?.taskResponse),
-            coherenceCohesion: normalizeText(
-                payload?.criterionFeedback?.coherenceCohesion
-            ),
-            lexicalResource: normalizeText(payload?.criterionFeedback?.lexicalResource),
-            grammarRangeAccuracy: normalizeText(
-                payload?.criterionFeedback?.grammarRangeAccuracy
-            )
-        }
+        strengths,
+        weaknesses,
+        improvementTips,
+        criterionFeedback,
+        grammarCorrections,
+        vocabularySuggestions,
+        estimatedExaminerComment: normalizeText(payload?.estimatedExaminerComment)
     };
 };
 
@@ -385,33 +666,64 @@ const requestWritingAssessment = async ({
     taskType,
     question,
     language,
-    retry = false
+    retry = false,
+    previousResponse = ""
 }) => {
+    const prompt = retry
+        ? buildJsonRepairPrompt({
+              essay,
+              taskType,
+              question,
+              language,
+              previousResponse
+          })
+        : buildPrompt({
+              essay,
+              taskType,
+              question,
+              language
+          });
+
+    logWritingDebug("prompt", {
+        retry,
+        model,
+        taskType,
+        prompt
+    });
+
     const response = await client.responses.create({
         model,
-        input: buildPrompt({
-            essay,
-            taskType,
-            question,
-            language,
-            retry
-        }),
+        input: prompt,
         temperature: 0.1,
         text: {
             format: {
                 type: "json_schema",
-                name: "ielts_writing_assessment",
+                name: `ielts_writing_assessment_${taskType}`,
                 strict: true,
-                schema: WRITING_RESPONSE_SCHEMA
+                schema: WRITING_RESPONSE_SCHEMAS[taskType]
             }
         }
     });
 
-    const parsed = response?.output_parsed || tryParseJson(extractResponseText(response));
+    const rawText = extractResponseText(response);
+    const parsed = response?.output_parsed || tryParseJson(rawText);
+
+    logWritingDebug("raw-response", {
+        retry,
+        model,
+        taskType,
+        rawText
+    });
+    logWritingDebug("parsed-json", {
+        retry,
+        model,
+        taskType,
+        parsed
+    });
 
     return {
         parsed,
-        rawText: extractResponseText(response)
+        rawText
     };
 };
 
@@ -423,71 +735,177 @@ const gradeWritingEssay = async ({
     question,
     language
 }) => {
-    const firstAttempt = await requestWritingAssessment({
-        client,
-        model,
-        essay,
-        taskType,
-        question,
-        language
-    });
+    let previousResponse = "";
+    let lastError = null;
 
-    let parsed = firstAttempt.parsed;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        const retry = attempt === 1;
 
-    if (!parsed) {
-        const retryAttempt = await requestWritingAssessment({
+        const assessmentAttempt = await requestWritingAssessment({
             client,
             model,
             essay,
             taskType,
             question,
             language,
-            retry: true
+            retry,
+            previousResponse
         });
-        parsed = retryAttempt.parsed;
+
+        previousResponse = assessmentAttempt.rawText;
+
+        if (!assessmentAttempt.parsed) {
+            lastError = new Error(
+                "AI returned invalid JSON for the writing assessment."
+            );
+            continue;
+        }
+
+        try {
+            const normalized = normalizeAssessment(assessmentAttempt.parsed, {
+                taskType,
+                essay
+            });
+
+            logWritingDebug("final-scores", {
+                taskType,
+                model,
+                scores: normalized.scores
+            });
+
+            return normalized;
+        } catch (error) {
+            lastError = error;
+        }
     }
 
-    if (!parsed) {
-        const error = new Error(
-            "AI returned invalid JSON twice. The writing result was not saved."
-        );
-        error.status = 502;
-        error.exposeToClient = true;
-        throw error;
+    const error =
+        lastError ||
+        new Error("AI returned an invalid writing assessment twice.");
+
+    error.status = error.status || 502;
+    error.exposeToClient = true;
+    if (!error.message) {
+        error.message =
+            "AI returned invalid JSON twice. The writing result was not saved.";
     }
 
-    return normalizeAssessment(parsed, {
-        taskType,
-        essay,
-        question
-    });
+    throw error;
+};
+
+const normalizeScoresFromSource = (source = {}, taskType = "") => {
+    const scores = source?.scores || {};
+    const legacy = source?.result || {};
+
+    return {
+        taskAchievement: normalizeCriterionBand(
+            scores.taskAchievement ??
+                (taskType === "task1"
+                    ? scores.taskResponse ?? source?.taskResponseScore
+                    : null)
+        ),
+        taskResponse: normalizeCriterionBand(
+            scores.taskResponse ??
+                (taskType === "task2" ? source?.taskResponseScore : null)
+        ),
+        coherence: normalizeCriterionBand(
+            scores.coherence ??
+                scores.coherenceCohesion ??
+                source?.coherenceScore ??
+                source?.coherenceCohesionScore
+        ),
+        lexical: normalizeCriterionBand(
+            scores.lexical ??
+                scores.lexicalResource ??
+                source?.lexicalScore ??
+                source?.lexicalResourceScore
+        ),
+        grammar: normalizeCriterionBand(
+            scores.grammar ??
+                scores.grammarRangeAccuracy ??
+                source?.grammarScore ??
+                source?.grammarRangeAccuracyScore
+        ),
+        overall: normalizeCriterionBand(
+            scores.overall ??
+                source?.overallScore ??
+                legacy?.band_score ??
+                legacy?.estimated_band
+        )
+    };
 };
 
 const normalizeStoredWritingResult = (doc) => {
     const source = doc?.toObject ? doc.toObject() : doc || {};
     const legacy = source.result || {};
+    const taskType = normalizeText(source.taskType);
     const essay = normalizeText(source.essay || source.essayText);
     const question = normalizeText(source.question || source.prompt);
-    const scores = {
-        taskResponse: normalizeCriterionBand(
-            source?.scores?.taskResponse ?? source?.taskResponseScore
+    const scores = normalizeScoresFromSource(source, taskType);
+    const rawCriterionFeedback = source.criterionFeedback || {};
+    const strengths = uniqueList(source.strengths || source?.feedback?.strengths || []);
+    const weaknesses = uniqueList(
+        source.weaknesses || source?.feedback?.weaknesses || legacy?.weaknesses || []
+    );
+    const grammarCorrections = normalizeGrammarCorrections(source.grammarCorrections);
+    const vocabularySuggestions = normalizeVocabularySuggestions(
+        source.vocabularySuggestions
+    );
+    const improvementTips = uniqueList(
+        source.improvementTips ||
+            source?.feedback?.improvementTips ||
+            legacy?.improvement_tips ||
+            buildImprovementTips({
+                weaknesses,
+                grammarCorrections,
+                vocabularySuggestions
+            })
+    );
+
+    const criterionFeedback = {
+        taskAchievement:
+            taskType === "task1" || rawCriterionFeedback.taskAchievement
+                ? normalizeCriterionFeedbackEntry(
+                      rawCriterionFeedback.taskAchievement ??
+                          rawCriterionFeedback.taskResponse,
+                      scores.taskAchievement
+                  )
+                : null,
+        taskResponse:
+            taskType === "task2" || rawCriterionFeedback.taskResponse
+                ? normalizeCriterionFeedbackEntry(
+                      rawCriterionFeedback.taskResponse,
+                      scores.taskResponse
+                  )
+                : null,
+        coherence: normalizeCriterionFeedbackEntry(
+            rawCriterionFeedback.coherence ??
+                rawCriterionFeedback.coherenceCohesion ??
+                normalizeList(legacy?.coherence_feedback).join(" "),
+            scores.coherence
         ),
-        coherenceCohesion: normalizeCriterionBand(
-            source?.scores?.coherenceCohesion ?? source?.coherenceCohesionScore
+        lexical: normalizeCriterionFeedbackEntry(
+            rawCriterionFeedback.lexical ??
+                rawCriterionFeedback.lexicalResource ??
+                normalizeList(legacy?.vocabulary_feedback).join(" "),
+            scores.lexical
         ),
-        lexicalResource: normalizeCriterionBand(
-            source?.scores?.lexicalResource ?? source?.lexicalResourceScore
-        ),
-        grammarRangeAccuracy: normalizeCriterionBand(
-            source?.scores?.grammarRangeAccuracy ?? source?.grammarRangeAccuracyScore
-        ),
-        overall:
-            clampBand(source?.scores?.overall) ??
-            clampBand(legacy?.band_score ?? legacy?.estimated_band)
+        grammar: normalizeCriterionFeedbackEntry(
+            rawCriterionFeedback.grammar ??
+                rawCriterionFeedback.grammarRangeAccuracy ??
+                normalizeList(legacy?.grammar_feedback).join(" "),
+            scores.grammar
+        )
     };
+
+    const estimatedExaminerComment =
+        normalizeText(source.estimatedExaminerComment) ||
+        normalizeText(legacy?.final_summary);
 
     return {
         ...source,
+        taskType,
+        taskTypeLabel: getPublicTaskType(taskType),
         testName: normalizeText(source.testName) || "Writing Test",
         question,
         essay,
@@ -496,63 +914,30 @@ const normalizeStoredWritingResult = (doc) => {
                 ? Number(source.wordCount)
                 : countWords(essay),
         scores,
+        strengths,
+        weaknesses,
+        improvementTips,
+        criterionFeedback,
+        grammarCorrections,
+        vocabularySuggestions,
+        estimatedExaminerComment,
         feedback: {
-            strengths: uniqueList(source?.feedback?.strengths || []),
-            weaknesses: uniqueList(source?.feedback?.weaknesses || legacy?.weaknesses || []),
-            improvementTips: uniqueList(
-                source?.feedback?.improvementTips || legacy?.improvement_tips || []
-            )
-        },
-        criterionFeedback: {
-            taskResponse:
-                normalizeText(source?.criterionFeedback?.taskResponse) ||
-                normalizeText(legacy?.final_summary),
-            coherenceCohesion:
-                normalizeText(source?.criterionFeedback?.coherenceCohesion) ||
-                normalizeList(legacy?.coherence_feedback).join(" "),
-            lexicalResource:
-                normalizeText(source?.criterionFeedback?.lexicalResource) ||
-                normalizeList(legacy?.vocabulary_feedback).join(" "),
-            grammarRangeAccuracy:
-                normalizeText(source?.criterionFeedback?.grammarRangeAccuracy) ||
-                normalizeList(legacy?.grammar_feedback).join(" ")
+            strengths,
+            weaknesses,
+            improvementTips
         },
         result: {
-            band_score:
-                clampBand(legacy?.band_score ?? legacy?.estimated_band) ??
-                clampBand(source?.scores?.overall),
-            estimated_band:
-                clampBand(legacy?.estimated_band ?? legacy?.band_score) ??
-                clampBand(source?.scores?.overall),
-            grammar_feedback:
-                normalizeList(legacy?.grammar_feedback).length
-                    ? normalizeList(legacy?.grammar_feedback)
-                    : normalizeText(source?.criterionFeedback?.grammarRangeAccuracy)
-                        ? [normalizeText(source?.criterionFeedback?.grammarRangeAccuracy)]
-                        : [],
-            vocabulary_feedback:
-                normalizeList(legacy?.vocabulary_feedback).length
-                    ? normalizeList(legacy?.vocabulary_feedback)
-                    : normalizeText(source?.criterionFeedback?.lexicalResource)
-                        ? [normalizeText(source?.criterionFeedback?.lexicalResource)]
-                        : [],
-            coherence_feedback:
-                normalizeList(legacy?.coherence_feedback).length
-                    ? normalizeList(legacy?.coherence_feedback)
-                    : normalizeText(source?.criterionFeedback?.coherenceCohesion)
-                        ? [normalizeText(source?.criterionFeedback?.coherenceCohesion)]
-                        : [],
-            weaknesses: uniqueList(legacy?.weaknesses || source?.feedback?.weaknesses || []),
-            improvement_tips: uniqueList(
-                legacy?.improvement_tips || source?.feedback?.improvementTips || []
-            ),
+            band_score: scores.overall,
+            estimated_band: scores.overall,
             final_summary:
-                normalizeText(legacy?.final_summary) ||
+                estimatedExaminerComment ||
                 buildTaskSummary({
-                    taskType: source.taskType,
+                    taskType,
                     scores,
-                    feedback: source.feedback,
-                    criterionFeedback: source.criterionFeedback
+                    strengths,
+                    weaknesses,
+                    improvementTips,
+                    criterionFeedback
                 })
         }
     };
@@ -578,30 +963,47 @@ const createStoredWritingResultPayload = ({
     essay: normalizeText(essay),
     essayText: normalizeText(essay),
     wordCount: assessment.wordCount,
-    scores: {
-        taskResponse: assessment.scores.taskResponse,
-        coherenceCohesion: assessment.scores.coherenceCohesion,
-        lexicalResource: assessment.scores.lexicalResource,
-        grammarRangeAccuracy: assessment.scores.grammarRangeAccuracy,
-        overall: assessment.scores.overall
-    },
-    feedback: {
-        strengths: uniqueList(assessment.feedback.strengths),
-        weaknesses: uniqueList(assessment.feedback.weaknesses),
-        improvementTips: uniqueList(assessment.feedback.improvementTips)
-    },
-    criterionFeedback: {
-        taskResponse: normalizeText(assessment.criterionFeedback.taskResponse),
-        coherenceCohesion: normalizeText(
-            assessment.criterionFeedback.coherenceCohesion
-        ),
-        lexicalResource: normalizeText(assessment.criterionFeedback.lexicalResource),
-        grammarRangeAccuracy: normalizeText(
-            assessment.criterionFeedback.grammarRangeAccuracy
-        )
-    },
+    scores: assessment.scores,
+    strengths: uniqueList(assessment.strengths),
+    weaknesses: uniqueList(assessment.weaknesses),
+    improvementTips: uniqueList(assessment.improvementTips),
+    criterionFeedback: assessment.criterionFeedback,
+    grammarCorrections: normalizeGrammarCorrections(assessment.grammarCorrections),
+    vocabularySuggestions: normalizeVocabularySuggestions(
+        assessment.vocabularySuggestions
+    ),
+    estimatedExaminerComment: normalizeText(assessment.estimatedExaminerComment),
     result: buildLegacyResultPayload(assessment)
 });
+
+const buildMergedCriterionFeedback = ({
+    left,
+    right,
+    band,
+    includeTaskLabels = true
+}) => {
+    const leftAnalysis = normalizeText(left?.analysis);
+    const rightAnalysis = normalizeText(right?.analysis);
+    const analysis = uniqueList([
+        leftAnalysis && includeTaskLabels ? `Task 1: ${leftAnalysis}` : leftAnalysis,
+        rightAnalysis && includeTaskLabels ? `Task 2: ${rightAnalysis}` : rightAnalysis
+    ]).join(" ");
+
+    const evidence = uniqueList([
+        ...(left?.evidence || []).map((item) =>
+            includeTaskLabels ? `Task 1: ${item}` : item
+        ),
+        ...(right?.evidence || []).map((item) =>
+            includeTaskLabels ? `Task 2: ${item}` : item
+        )
+    ]).slice(0, 8);
+
+    return {
+        band: normalizeCriterionBand(band),
+        analysis,
+        evidence
+    };
+};
 
 const buildOverallAssessmentFromTasks = (task1Doc, task2Doc) => {
     const task1 = normalizeStoredWritingResult(task1Doc);
@@ -609,7 +1011,9 @@ const buildOverallAssessmentFromTasks = (task1Doc, task2Doc) => {
 
     if (
         task1?.scores?.overall == null ||
-        task2?.scores?.overall == null
+        task2?.scores?.overall == null ||
+        task1?.scores?.taskAchievement == null ||
+        task2?.scores?.taskResponse == null
     ) {
         return null;
     }
@@ -623,64 +1027,61 @@ const buildOverallAssessmentFromTasks = (task1Doc, task2Doc) => {
 
     const assessment = {
         taskType: "overall",
+        taskTypeLabel: "Overall",
         wordCount: (task1.wordCount || 0) + (task2.wordCount || 0),
         scores: {
-            taskResponse: weightedCriterion("taskResponse"),
-            coherenceCohesion: weightedCriterion("coherenceCohesion"),
-            lexicalResource: weightedCriterion("lexicalResource"),
-            grammarRangeAccuracy: weightedCriterion("grammarRangeAccuracy"),
+            taskAchievement: task1.scores.taskAchievement,
+            taskResponse: task2.scores.taskResponse,
+            coherence: weightedCriterion("coherence"),
+            lexical: weightedCriterion("lexical"),
+            grammar: weightedCriterion("grammar"),
             overall: roundIeltsOverallBand(
                 (Number(task1.scores.overall) + 2 * Number(task2.scores.overall)) / 3
             )
         },
-        feedback: {
-            strengths: uniqueList([
-                ...(task1.feedback?.strengths || []),
-                ...(task2.feedback?.strengths || [])
-            ]).slice(0, 6),
-            weaknesses: uniqueList([
-                ...(task1.feedback?.weaknesses || []),
-                ...(task2.feedback?.weaknesses || [])
-            ]).slice(0, 6),
-            improvementTips: uniqueList([
-                ...(task1.feedback?.improvementTips || []),
-                ...(task2.feedback?.improvementTips || [])
-            ]).slice(0, 6)
-        },
+        strengths: uniqueList([
+            ...(task1.strengths || []),
+            ...(task2.strengths || [])
+        ]).slice(0, 6),
+        weaknesses: uniqueList([
+            ...(task1.weaknesses || []),
+            ...(task2.weaknesses || [])
+        ]).slice(0, 6),
+        improvementTips: uniqueList([
+            ...(task1.improvementTips || []),
+            ...(task2.improvementTips || [])
+        ]).slice(0, 6),
         criterionFeedback: {
-            taskResponse: uniqueList([
-                task1.criterionFeedback?.taskResponse
-                    ? `Task 1: ${task1.criterionFeedback.taskResponse}`
-                    : "",
-                task2.criterionFeedback?.taskResponse
-                    ? `Task 2: ${task2.criterionFeedback.taskResponse}`
-                    : ""
-            ]).join(" "),
-            coherenceCohesion: uniqueList([
-                task1.criterionFeedback?.coherenceCohesion
-                    ? `Task 1: ${task1.criterionFeedback.coherenceCohesion}`
-                    : "",
-                task2.criterionFeedback?.coherenceCohesion
-                    ? `Task 2: ${task2.criterionFeedback.coherenceCohesion}`
-                    : ""
-            ]).join(" "),
-            lexicalResource: uniqueList([
-                task1.criterionFeedback?.lexicalResource
-                    ? `Task 1: ${task1.criterionFeedback.lexicalResource}`
-                    : "",
-                task2.criterionFeedback?.lexicalResource
-                    ? `Task 2: ${task2.criterionFeedback.lexicalResource}`
-                    : ""
-            ]).join(" "),
-            grammarRangeAccuracy: uniqueList([
-                task1.criterionFeedback?.grammarRangeAccuracy
-                    ? `Task 1: ${task1.criterionFeedback.grammarRangeAccuracy}`
-                    : "",
-                task2.criterionFeedback?.grammarRangeAccuracy
-                    ? `Task 2: ${task2.criterionFeedback.grammarRangeAccuracy}`
-                    : ""
-            ]).join(" ")
-        }
+            taskAchievement: task1.criterionFeedback?.taskAchievement || null,
+            taskResponse: task2.criterionFeedback?.taskResponse || null,
+            coherence: buildMergedCriterionFeedback({
+                left: task1.criterionFeedback?.coherence,
+                right: task2.criterionFeedback?.coherence,
+                band: weightedCriterion("coherence")
+            }),
+            lexical: buildMergedCriterionFeedback({
+                left: task1.criterionFeedback?.lexical,
+                right: task2.criterionFeedback?.lexical,
+                band: weightedCriterion("lexical")
+            }),
+            grammar: buildMergedCriterionFeedback({
+                left: task1.criterionFeedback?.grammar,
+                right: task2.criterionFeedback?.grammar,
+                band: weightedCriterion("grammar")
+            })
+        },
+        grammarCorrections: normalizeGrammarCorrections([
+            ...(task1.grammarCorrections || []),
+            ...(task2.grammarCorrections || [])
+        ]).slice(0, 8),
+        vocabularySuggestions: normalizeVocabularySuggestions([
+            ...(task1.vocabularySuggestions || []),
+            ...(task2.vocabularySuggestions || [])
+        ]).slice(0, 8),
+        estimatedExaminerComment: uniqueList([
+            task1.estimatedExaminerComment,
+            task2.estimatedExaminerComment
+        ]).join(" ")
     };
 
     return assessment;
@@ -688,12 +1089,20 @@ const buildOverallAssessmentFromTasks = (task1Doc, task2Doc) => {
 
 module.exports = {
     MIN_WORDS_BY_TASK,
-    WRITING_RESPONSE_SCHEMA,
+    WRITING_RESPONSE_SCHEMAS,
     buildLegacyResultPayload,
     buildOverallAssessmentFromTasks,
+    buildPrompt,
+    buildJsonRepairPrompt,
+    buildWritingResponseSchema,
     countWords,
     createStoredWritingResultPayload,
+    getPublicTaskType,
+    getTaskConfig,
     gradeWritingEssay,
+    logWritingDebug,
+    normalizeAssessment,
     normalizeStoredWritingResult,
+    requestWritingAssessment,
     roundIeltsOverallBand
 };

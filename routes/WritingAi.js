@@ -8,6 +8,7 @@ const {
     buildOverallAssessmentFromTasks,
     createStoredWritingResultPayload,
     gradeWritingEssay,
+    logWritingDebug,
     normalizeStoredWritingResult
 } = require("../services/writingAssessmentService");
 const {
@@ -18,7 +19,8 @@ const {
 const router = express.Router();
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+const OPENAI_MODEL =
+    process.env.AI_WRITING_MODEL || process.env.OPENAI_MODEL || "gpt-4.1";
 
 const client = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
@@ -102,6 +104,13 @@ router.post("/ai-check", auth, async (req, res) => {
             language
         });
 
+        logWritingDebug("route-final-assessment", {
+            route: "/api/writing/ai-check",
+            model: OPENAI_MODEL,
+            taskType,
+            scores: assessment.scores
+        });
+
         if (access.shouldConsume) {
             consumeWritingCheck(user);
         }
@@ -118,6 +127,17 @@ router.post("/ai-check", auth, async (req, res) => {
                 assessment
             })
         );
+        const normalizedSavedDoc = normalizeStoredWritingResult(savedDoc);
+
+        logWritingDebug("mongodb-saved-result", {
+            route: "/api/writing/ai-check",
+            taskType,
+            savedResult: {
+                id: savedDoc._id,
+                attemptKey: normalizeText(attemptKey),
+                scores: normalizedSavedDoc.scores
+            }
+        });
 
         const filter = buildAttemptFilter({
             userId: req.user.id,
@@ -143,7 +163,7 @@ router.post("/ai-check", auth, async (req, res) => {
 
         return res.json({
             success: true,
-            result: normalizeStoredWritingResult(savedDoc),
+            result: normalizedSavedDoc,
             overall
         });
     } catch (err) {

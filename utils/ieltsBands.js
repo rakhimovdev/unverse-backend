@@ -56,17 +56,19 @@ const getBandScore = (rawScore, table) => {
     return row ? row.band : null;
 };
 
-const roundToHalfBand = (value) => {
+const roundToNearestHalfBand = (value) => {
     const num = Number(value);
     if (!Number.isFinite(num)) return null;
     return Math.round(num * 2) / 2;
 };
 
+const roundToHalfBand = (value) => roundToNearestHalfBand(value);
+
 const averageBands = (bands = []) => {
     const values = bands.map(Number).filter(Number.isFinite);
     if (!values.length) return null;
     const total = values.reduce((sum, value) => sum + value, 0);
-    return roundToHalfBand(total / values.length);
+    return roundToNearestHalfBand(total / values.length);
 };
 
 module.exports = {
@@ -74,6 +76,7 @@ module.exports = {
     READING_GENERAL_TABLE,
     LISTENING_BAND_TABLE,
     getBandScore,
+    roundToNearestHalfBand,
     roundToHalfBand,
     averageBands
 };

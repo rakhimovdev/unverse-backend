@@ -56,45 +56,37 @@ const normalizeReviewItem = (item, index, labelPrefix) => ({
 
 const buildTaskPayload = (taskDoc) => {
     const task = normalizeStoredWritingResult(taskDoc);
-    const result = task?.result || {};
 
     return {
-        bandScore:
-            toFiniteNumber(task?.scores?.overall, null) ??
-            toFiniteNumber(result.band_score, null),
+        bandScore: toFiniteNumber(task?.scores?.overall, null),
         essayText: normalizeText(task?.essay),
         prompt: normalizeText(task?.question || task?.prompt),
         question: normalizeText(task?.question || task?.prompt),
         wordCount: toFiniteNumber(task?.wordCount, 0) || 0,
-        taskResponseScore: toFiniteNumber(task?.scores?.taskResponse, null),
-        coherenceCohesionScore: toFiniteNumber(
-            task?.scores?.coherenceCohesion,
-            null
-        ),
-        lexicalResourceScore: toFiniteNumber(task?.scores?.lexicalResource, null),
-        grammarRangeAccuracyScore: toFiniteNumber(
-            task?.scores?.grammarRangeAccuracy,
-            null
-        ),
-        strengths: normalizeList(task?.feedback?.strengths),
-        grammarFeedback: normalizeList(result.grammar_feedback),
-        vocabularyFeedback: normalizeList(result.vocabulary_feedback),
-        coherenceFeedback: normalizeList(result.coherence_feedback),
-        weaknesses: normalizeList(task?.feedback?.weaknesses || result.weaknesses),
-        improvementTips: normalizeList(
-            task?.feedback?.improvementTips || result.improvement_tips
-        ),
-        criterionFeedback: {
-            taskResponse: normalizeText(task?.criterionFeedback?.taskResponse),
-            coherenceCohesion: normalizeText(
-                task?.criterionFeedback?.coherenceCohesion
-            ),
-            lexicalResource: normalizeText(task?.criterionFeedback?.lexicalResource),
-            grammarRangeAccuracy: normalizeText(
-                task?.criterionFeedback?.grammarRangeAccuracy
-            )
+        taskType: normalizeText(task?.taskType),
+        taskTypeLabel: normalizeText(task?.taskTypeLabel),
+        scores: {
+            taskAchievement: toFiniteNumber(task?.scores?.taskAchievement, null),
+            taskResponse: toFiniteNumber(task?.scores?.taskResponse, null),
+            coherence: toFiniteNumber(task?.scores?.coherence, null),
+            lexical: toFiniteNumber(task?.scores?.lexical, null),
+            grammar: toFiniteNumber(task?.scores?.grammar, null),
+            overall: toFiniteNumber(task?.scores?.overall, null)
         },
-        finalSummary: normalizeText(result.final_summary)
+        strengths: normalizeList(task?.strengths),
+        weaknesses: normalizeList(task?.weaknesses),
+        improvementTips: normalizeList(task?.improvementTips),
+        criterionFeedback: task?.criterionFeedback || {},
+        grammarCorrections: Array.isArray(task?.grammarCorrections)
+            ? task.grammarCorrections
+            : [],
+        vocabularySuggestions: Array.isArray(task?.vocabularySuggestions)
+            ? task.vocabularySuggestions
+            : [],
+        estimatedExaminerComment: normalizeText(task?.estimatedExaminerComment),
+        finalSummary:
+            normalizeText(task?.result?.final_summary) ||
+            normalizeText(task?.estimatedExaminerComment)
     };
 };
 
@@ -199,8 +191,13 @@ const buildWritingSummary = (task1, task2) => {
     const strengthPool = [...(task1?.strengths || []), ...(task2?.strengths || [])];
     const weaknessPool = [...(task1?.weaknesses || []), ...(task2?.weaknesses || [])];
     const tipPool = [...(task1?.improvementTips || []), ...(task2?.improvementTips || [])];
+    const examinerComments = [
+        task1?.estimatedExaminerComment,
+        task2?.estimatedExaminerComment
+    ].filter(Boolean);
 
     if (summaries.length) return summaries.join(" ");
+    if (examinerComments.length) return examinerComments.join(" ");
     if (strengthPool.length || weaknessPool.length || tipPool.length) {
         const parts = [];
         if (strengthPool.length) {
