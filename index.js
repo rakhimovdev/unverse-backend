@@ -65,40 +65,91 @@ if (!url || !process.env.JWT_SECRET) {
     process.exit(1);
 }
 
-mongoose.connect(url)
-    .then(async () => {
+const getMongoConnectionTarget = (connectionString) => {
+    try {
+        const parsed = new URL(connectionString);
+        if (!parsed.protocol.startsWith("mongodb")) return null;
+        return parsed.hostname;
+    } catch {
+        return null;
+    }
+};
+
+const describeMongoError = (error) => {
+    const code = String(error?.code || "").toUpperCase();
+    const name = String(error?.name || "").toLowerCase();
+
+    if (code === "ENOTFOUND" || name.includes("querysrv")) {
+        return "DNS/SRV hostname could not be resolved. Verify the MongoDB Atlas connection string and cluster hostname.";
+    }
+    if (code === "18" || name.includes("authentication")) {
+        return "MongoDB authentication failed. Verify the Atlas database username, password, and network access without exposing them in source code.";
+    }
+    if (name.includes("invalid") || name.includes("uri")) {
+        return "The MongoDB connection string is invalid. Copy the driver URI from MongoDB Atlas.";
+    }
+    if (name.includes("timeout") || code === "ETIMEDOUT") {
+        return "MongoDB connection timed out. Check Atlas network access and the current network connection.";
+    }
+    return "MongoDB server could not be reached. Check Atlas availability, network access, and DNS settings.";
+};
+
+const migrateUsers = async () => {
+    const [studentTypeResult, verificationResult] = await Promise.all([
+        UserModel.updateMany(
+            {
+                role: "student",
+                $or: [
+                    { studentType: { $exists: false } },
+                    { studentType: null },
+                    { studentType: "" }
+                ]
+            },
+            { $set: { studentType: "insider" } }
+        ),
+        UserModel.updateMany(
+            { isVerified: { $exists: false } },
+            { $set: { isVerified: true } }
+        )
+    ]);
+
+    if (studentTypeResult?.modifiedCount) {
+        console.log(`✅ ${studentTypeResult.modifiedCount} student insider qilib yangilandi`);
+    }
+    if (verificationResult?.modifiedCount) {
+        console.log(`✅ ${verificationResult.modifiedCount} user verified flag bilan yangilandi`);
+    }
+};
+
+const startServer = async () => {
+    const mongoHost = getMongoConnectionTarget(url);
+    if (!mongoHost) {
+        throw new Error("The MONGO_URI value is missing or has an invalid MongoDB URL format.");
+    }
+
+    try {
+        await mongoose.connect(url, { serverSelectionTimeoutMS: 10000 });
         console.log("✅ MongoDBga ulandi");
+    } catch (error) {
+        console.error(`❌ MongoDB connection failed for ${mongoHost}.`);
+        console.error(`Reason: ${describeMongoError(error)}`);
+        throw error;
+    }
 
-        try {
-            const [studentTypeResult, verificationResult] = await Promise.all([
-                UserModel.updateMany(
-                    {
-                        role: "student",
-                        $or: [
-                            { studentType: { $exists: false } },
-                            { studentType: null },
-                            { studentType: "" }
-                        ]
-                    },
-                    { $set: { studentType: "insider" } }
-                ),
-                UserModel.updateMany(
-                    { isVerified: { $exists: false } },
-                    { $set: { isVerified: true } }
-                )
-            ]);
+    try {
+        await migrateUsers();
+    } catch (error) {
+        console.error("❌ User migratsiya xatosi:", error?.message || "unknown error");
+    }
 
-            if (studentTypeResult?.modifiedCount) {
-                console.log(`✅ ${studentTypeResult.modifiedCount} student insider qilib yangilandi`);
-            }
-            if (verificationResult?.modifiedCount) {
-                console.log(`✅ ${verificationResult.modifiedCount} user verified flag bilan yangilandi`);
-            }
-        } catch (err) {
-            console.error("❌ User migratsiya xatosi:", err);
-        }
-    })
-    .catch((error) => console.error("❌ MongoDB ulanishda xato:", error));
+    app.listen(PORT, () => {
+        console.log(`🚀 Server ${PORT} portda ishlamoqda`);
+    });
+};
+
+startServer().catch(() => {
+    process.exitCode = 1;
+});
 
 // 5. Routes
 app.use("/auth", AuthRouter);
@@ -117,6 +168,3 @@ app.use("/results", Results);
 app.use('/api/click', clickRoutes)
 // 6. Server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-    console.log(`🚀 Server ${PORT} portda ishlamoqda`);
-});
