@@ -5,6 +5,7 @@ const User = require("../models/User");
 const auth = require("../middleware/auth");
 const Listening = require("../models/Testl"); // Listening model
 const { saveListeningResult } = require("../services/resultService");
+const Result = require("../models/Result");
 const { LISTENING_BAND_TABLE, getBandScore } = require("../utils/ieltsBands");
 
 const normalizeStudentNames = (user) => {
@@ -24,7 +25,18 @@ const normalizeStudentNames = (user) => {
 // Score qo‘shish (student faqat o‘zi uchun)
 router.post("/add", auth, async (req, res) => {
     try {
-        const { listeningId, score, attemptKey, listeningDetails } = req.body;
+        const {
+            listeningId,
+            score,
+            attemptKey,
+            mode = "solving",
+            solvingAttemptId,
+            startedAt,
+            completedAt,
+            timeSpent,
+            answers,
+            listeningDetails
+        } = req.body;
 
         if (!listeningId || score === undefined) {
             return res.status(400).json({ message: "listeningId va score kerak!" });
@@ -33,6 +45,28 @@ router.post("/add", auth, async (req, res) => {
         const listening = await Listening.findById(listeningId);
         if (!listening) {
             return res.status(404).json({ message: "Listening test topilmadi!" });
+        }
+
+        if (!["solving", "resolving"].includes(mode)) {
+            return res.status(400).json({ message: "Noto‘g‘ri attempt mode" });
+        }
+
+        let parentAttempt = null;
+        if (mode === "resolving") {
+            if (!solvingAttemptId) {
+                return res.status(400).json({ message: "Solving attempt kerak" });
+            }
+            parentAttempt = await Result.findOne({
+                _id: solvingAttemptId,
+                userId: req.user.id,
+                testId: listening._id,
+                moduleType: "Listening",
+                mode: "solving",
+                completedAt: { $ne: null }
+            });
+            if (!parentAttempt) {
+                return res.status(403).json({ message: "Avval Solving attemptni yakunlang" });
+            }
         }
 
         const user = await User.findById(req.user.id);
@@ -75,6 +109,12 @@ router.post("/add", auth, async (req, res) => {
             testId: listening._id,
             testName: listening.title,
             attemptKey,
+            mode,
+            solvingAttemptId: parentAttempt?._id || null,
+            answers,
+            startedAt,
+            completedAt,
+            timeSpent,
             listening: {
                 sectionScores: listeningDetails?.sectionScores || [],
                 rawScore: Number(listeningDetails?.rawScore ?? score) || 0,
@@ -86,9 +126,16 @@ router.post("/add", auth, async (req, res) => {
             }
         });
 
+        const result = await Result.findOne({
+            userId: req.user.id,
+            moduleType: "Listening",
+            attemptKey
+        }).lean();
+
         res.status(201).json({
             message: wasExisting ? "Score yangilandi ✅" : "Score saqlandi ✅",
-            score: existing
+            score: existing,
+            result
         });
     } catch (err) {
         console.error("Score saqlashda xato:", err);

@@ -140,6 +140,24 @@ const ResultSchema = new mongoose.Schema(
             default: "",
             trim: true
         },
+            mode: {
+                type: String,
+                enum: ["solving", "resolving"],
+                default: "solving",
+                index: true
+            },
+            solvingAttemptId: {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: "Result",
+                default: null
+            },
+            answers: {
+                type: mongoose.Schema.Types.Mixed,
+                default: () => []
+            },
+            startedAt: { type: Date, default: null },
+            completedAt: { type: Date, default: null },
+            timeSpent: { type: Number, default: 0 },
         testId: {
             type: mongoose.Schema.Types.ObjectId,
             default: null

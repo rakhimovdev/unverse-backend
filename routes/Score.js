@@ -6,6 +6,7 @@ const auth = require("../middleware/auth");
 const Test = require("../models/Test");
 const { serializeUser } = require("../utils/userSerializer");
 const { saveReadingResult } = require("../services/resultService");
+const Result = require("../models/Result");
 const {
     READING_ACADEMIC_TABLE,
     READING_GENERAL_TABLE,
@@ -15,7 +16,18 @@ const {
 // Score qo‘shish yoki yangilash
 router.post("/add", auth, async (req, res) => {
     try {
-        const { testId, score, attemptKey, readingDetails } = req.body;
+        const {
+            testId,
+            score,
+            attemptKey,
+            mode = "solving",
+            solvingAttemptId,
+            startedAt,
+            completedAt,
+            timeSpent,
+            answers,
+            readingDetails
+        } = req.body;
 
         if (!testId || score === undefined) {
             return res.status(400).json({ message: "testId va score kerak!" });
@@ -24,6 +36,28 @@ router.post("/add", auth, async (req, res) => {
         const test = await Test.findById(testId);
         if (!test) {
             return res.status(404).json({ message: "Test topilmadi!" });
+        }
+
+        if (!["solving", "resolving"].includes(mode)) {
+            return res.status(400).json({ message: "Noto‘g‘ri attempt mode" });
+        }
+
+        let parentAttempt = null;
+        if (mode === "resolving") {
+            if (!solvingAttemptId) {
+                return res.status(400).json({ message: "Solving attempt kerak" });
+            }
+            parentAttempt = await Result.findOne({
+                _id: solvingAttemptId,
+                userId: req.user.id,
+                testId: test._id,
+                moduleType: "Reading",
+                mode: "solving",
+                completedAt: { $ne: null }
+            });
+            if (!parentAttempt) {
+                return res.status(403).json({ message: "Avval Solving attemptni yakunlang" });
+            }
         }
 
         const user = await User.findById(req.user.id);
@@ -67,6 +101,12 @@ router.post("/add", auth, async (req, res) => {
             testId: test._id,
             testName: test.name,
             attemptKey,
+            mode,
+            solvingAttemptId: parentAttempt?._id || null,
+            answers,
+            startedAt,
+            completedAt,
+            timeSpent,
             reading: {
                 passageScores: readingDetails?.passageScores || [],
                 rawScore: Number(readingDetails?.rawScore ?? score) || 0,
@@ -78,9 +118,16 @@ router.post("/add", auth, async (req, res) => {
             }
         });
 
+        const result = await Result.findOne({
+            userId: req.user.id,
+            moduleType: "Reading",
+            attemptKey
+        }).lean();
+
         res.json({
             message: wasExisting ? "Score yangilandi ✅" : "Score saqlandi ✅",
-            score: existing
+            score: existing,
+            result
         });
     } catch (err) {
         console.error(err);

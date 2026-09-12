@@ -117,11 +117,23 @@ const saveReadingResult = async ({
     testId = null,
     testName = "",
     attemptKey = "",
-    reading = {}
+    reading = {},
+    mode = "solving",
+    solvingAttemptId = null,
+    answers = [],
+    startedAt = null,
+    completedAt = null,
+    timeSpent = 0
 }) => {
     const payload = {
         userId,
         attemptKey: normalizeText(attemptKey),
+        mode,
+        solvingAttemptId,
+        answers,
+        startedAt,
+        completedAt,
+        timeSpent: toFiniteNumber(timeSpent, 0) || 0,
         testId,
         testName: normalizeText(testName) || "Reading Test",
         moduleType: "Reading",
@@ -146,6 +158,15 @@ const saveReadingResult = async ({
             toFiniteNumber(reading.generalBand, null)
     };
 
+    if (payload.attemptKey) {
+        const existing = await Result.findOne({
+            userId,
+            moduleType: "Reading",
+            attemptKey: payload.attemptKey
+        });
+        if (existing) return existing;
+    }
+
     return upsertResult({ userId, moduleType: "Reading", attemptKey, payload });
 };
 
@@ -154,11 +175,23 @@ const saveListeningResult = async ({
     testId = null,
     testName = "",
     attemptKey = "",
-    listening = {}
+    listening = {},
+    mode = "solving",
+    solvingAttemptId = null,
+    answers = [],
+    startedAt = null,
+    completedAt = null,
+    timeSpent = 0
 }) => {
     const payload = {
         userId,
         attemptKey: normalizeText(attemptKey),
+        mode,
+        solvingAttemptId,
+        answers,
+        startedAt,
+        completedAt,
+        timeSpent: toFiniteNumber(timeSpent, 0) || 0,
         testId,
         testName: normalizeText(testName) || "Listening Test",
         moduleType: "Listening",
@@ -182,6 +215,15 @@ const saveListeningResult = async ({
             toFiniteNumber(listening.academicBand, null) ??
             toFiniteNumber(listening.generalBand, null)
     };
+
+    if (payload.attemptKey) {
+        const existing = await Result.findOne({
+            userId,
+            moduleType: "Listening",
+            attemptKey: payload.attemptKey
+        });
+        if (existing) return existing;
+    }
 
     return upsertResult({ userId, moduleType: "Listening", attemptKey, payload });
 };
