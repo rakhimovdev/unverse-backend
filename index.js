@@ -147,7 +147,10 @@ const startServer = async () => {
     });
 };
 
-startServer().catch(() => {
+startServer().catch((error) => {
+    if (error?.message) {
+        console.error(`❌ Backend startup failed: ${error.message}`);
+    }
     process.exitCode = 1;
 });
 
