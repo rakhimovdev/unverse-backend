@@ -1,4 +1,5 @@
 const authService = require("../services/authService");
+const accountService = require("../services/accountService");
 
 const handleAuthError = (res, error) => {
     const status = error.status || 500;
@@ -29,6 +30,27 @@ const login = async (req, res) => {
 const google = async (req, res) => {
     try {
         const result = await authService.loginWithGoogle(req.body || {});
+        return res.json(result);
+    } catch (error) {
+        return handleAuthError(res, error);
+    }
+};
+
+const completeStudentSetup = async (req, res) => {
+    try {
+        const result = await authService.completeStudentSetup(
+            req.user.id,
+            req.body || {}
+        );
+        return res.json(result);
+    } catch (error) {
+        return handleAuthError(res, error);
+    }
+};
+
+const deleteAccount = async (req, res) => {
+    try {
+        const result = await accountService.deleteAccount(req.user.id);
         return res.json(result);
     } catch (error) {
         return handleAuthError(res, error);
@@ -78,6 +100,8 @@ module.exports = {
     register,
     login,
     google,
+    completeStudentSetup,
+    deleteAccount,
     sendOtp,
     verifyOtp,
     resendOtp,

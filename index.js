@@ -19,30 +19,27 @@ const AiWriting = require("./routes/AiWriting");
 const WritingAi = require("./routes/WritingAi");
 const AuthRouter = require("./routes/Auth");
 const Results = require("./routes/Results");
+const PORT = process.env.PORT || 5000;
 
-// 1. Avval CORS
 const configuredOrigins = String(process.env.FRONTEND_URLS || "")
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
 
-const allowedOrigins = [
-    "https://unversels.vercel.app",
-    "https://unverse-frontend.vercel.app",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    ...configuredOrigins
-];
 const isDev = process.env.NODE_ENV !== "production";
+const allowedOrigins = configuredOrigins.length
+    ? configuredOrigins
+    : isDev
+        ? ["http://localhost:3000", "http://127.0.0.1:3000"]
+        : [];
 
+app.set("trust proxy", 1);
 app.use(cors({
     origin: function (origin, callback) {
-        if (!origin) return callback(null, true); // Postman kabi holatlar uchun
-        if (isDev) return callback(null, true);
+        if (!origin) return callback(null, true);
         if (allowedOrigins.includes(origin)) {
             return callback(null, true);
         }
-        console.log("❌ Not allowed origin:", origin);
         return callback(new Error("Not allowed by CORS"));
     },
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -99,10 +96,17 @@ const migrateUsers = async () => {
         UserModel.updateMany(
             {
                 role: "student",
-                $or: [
-                    { studentType: { $exists: false } },
-                    { studentType: null },
-                    { studentType: "" }
+                $and: [
+                    {
+                        $or: [
+                            { studentType: { $exists: false } },
+                            { studentType: null },
+                            { studentType: "" }
+                        ]
+                    },
+                    {
+                        $or: [{ googleId: null }, { googleId: "" }]
+                    }
                 ]
             },
             { $set: { studentType: "insider" } }
@@ -148,9 +152,7 @@ const startServer = async () => {
 };
 
 startServer().catch((error) => {
-    if (error?.message) {
-        console.error(`❌ Backend startup failed: ${error.message}`);
-    }
+    console.error("❌ Backend startup failed. Check MongoDB connectivity and required configuration.");
     process.exitCode = 1;
 });
 
@@ -169,5 +171,3 @@ app.use("/ai", AiWriting);
 app.use("/api/writing", WritingAi);
 app.use("/results", Results);
 app.use('/api/click', clickRoutes)
-// 6. Server
-const PORT = process.env.PORT || 5000;

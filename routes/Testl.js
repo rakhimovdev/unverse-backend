@@ -40,7 +40,7 @@ const resolveBaseUrl = (req) => {
     }
 
     const host = req.get("host");
-    if (!host) return "http://localhost:5000";
+    if (!host) return "";
 
     const forwardedProto = req.headers["x-forwarded-proto"];
     const protoValue = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto;
@@ -118,6 +118,16 @@ router.post(
     ]),
     async (req, res) => {
         try {
+            const uploadedFiles = Object.values(req.files || {}).flat();
+            if (uploadedFiles.length && !canUseCloudinary()) {
+                await Promise.all(
+                    uploadedFiles.map((file) => fs.promises.unlink(file.path).catch(() => {}))
+                );
+                return res.status(503).json({
+                    message: "Cloudinary is not configured. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET to upload listening media."
+                });
+            }
+
             let questions = [];
             if (req.body.questions) {
                 try {

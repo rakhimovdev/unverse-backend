@@ -445,9 +445,6 @@ const loginWithGoogle = async ({ credential }) => {
         user.avatar = payload.picture || user.avatar || "";
         user.isVerified = true;
 
-        if (!user.studentType && user.role === "student") {
-            user.studentType = "outsider";
-        }
     } else {
         user = new User({
             fullname,
@@ -459,7 +456,7 @@ const loginWithGoogle = async ({ credential }) => {
             googleId: payload.sub,
             avatar: payload.picture || "",
             role: "student",
-            studentType: "outsider",
+            studentType: null,
             isVerified: true
         });
     }
@@ -471,6 +468,36 @@ const loginWithGoogle = async ({ credential }) => {
 
     return {
         message: "Google login successful.",
+        ...buildSession(user)
+    };
+};
+
+const completeStudentSetup = async (userId, payload = {}) => {
+    const user = await User.findById(userId);
+
+    if (!user || user.role !== "student") {
+        throw createAuthError(403, "Student account required.");
+    }
+
+    if (user.studentType) {
+        throw createAuthError(409, "Student setup has already been completed.");
+    }
+
+    const studentType = String(payload.studentType || "").trim().toLowerCase();
+    if (!["outsider", "insider"].includes(studentType)) {
+        throw createAuthError(400, "Student type must be either outsider or insider.");
+    }
+
+    const placement = await resolveStudentPlacement({
+        ...payload,
+        studentType
+    });
+
+    Object.assign(user, placement);
+    await user.save();
+
+    return {
+        message: "Student setup completed.",
         ...buildSession(user)
     };
 };
@@ -496,5 +523,6 @@ module.exports = {
     verifyOtp,
     loginUser,
     loginWithGoogle,
+    completeStudentSetup,
     getCurrentUser
 };
