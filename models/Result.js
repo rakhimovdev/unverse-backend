@@ -162,6 +162,12 @@ const ResultSchema = new mongoose.Schema(
             type: mongoose.Schema.Types.ObjectId,
             default: null
         },
+        homeworkId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Homework",
+            default: null,
+            index: true
+        },
         testName: {
             type: String,
             required: true,

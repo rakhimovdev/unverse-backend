@@ -8,7 +8,9 @@ const ReadingTest = require("../models/Test");
 const ListeningTest = require("../models/Testl");
 const WritingTask = require("../models/writing");
 const Result = require("../models/Result");
+const WritingResult = require("../models/WritingResult");
 const { normalizeHomeworkSections } = require("../utils/homeworkSections");
+const { buildAssignmentResults } = require("../utils/homeworkResults");
 
 const requireTeacher = (req, res, next) => {
   if (!req.user || req.user.role !== "teacher") {
@@ -18,53 +20,6 @@ const requireTeacher = (req, res, next) => {
 };
 
 const buildGroupName = (slot) => `${slot.day || "Guruh"} - ${slot.time || "vaqt"}`;
-
-const getModuleScoreFromResult = (result, moduleType) => {
-  if (!result) return null;
-
-  const moduleMap = {
-    Reading: result.reading || {},
-    Listening: result.listening || {},
-    Writing: result.writing || {}
-  };
-
-  const moduleData = moduleMap[moduleType] || {};
-  const scoreValue =
-    moduleData.academicBand ??
-    moduleData.generalBand ??
-    moduleData.overallBand ??
-    result.overallBand ??
-    null;
-
-  const numericScore = Number(scoreValue);
-  return Number.isFinite(numericScore) ? numericScore : null;
-};
-
-const getTimeSpentFromResult = (result) => {
-  const timeSpent = Number(result?.timeSpent);
-  return Number.isFinite(timeSpent) && timeSpent > 0 ? timeSpent : null;
-};
-
-const getLatestStudentResults = async (studentIds) => {
-  if (!studentIds.length) return new Map();
-
-  const results = await Result.find({
-    userId: { $in: studentIds },
-    moduleType: { $in: ["Reading", "Listening", "Writing"] }
-  }).sort({ createdAt: -1 }).lean();
-
-  const latestByStudentModule = new Map();
-
-  for (const result of results) {
-    const userKey = String(result.userId);
-    const moduleKey = `${userKey}:${result.moduleType}`;
-    if (!latestByStudentModule.has(moduleKey)) {
-      latestByStudentModule.set(moduleKey, result);
-    }
-  }
-
-  return latestByStudentModule;
-};
 
 const getGroupMembers = async (teacherId, slotId) => {
   const students = await User.find({
@@ -86,44 +41,52 @@ const getGroupMembers = async (teacherId, slotId) => {
 
 const getGroupPayload = async (teacherId, slot) => {
   const students = await getGroupMembers(teacherId, slot._id);
-  const latestResults = await getLatestStudentResults(students.map((student) => student.id));
-
-  const enrichedStudents = students.map((student) => {
-    const studentId = student.id;
-    const readingScore = getModuleScoreFromResult(latestResults.get(`${studentId}:Reading`), "Reading");
-    const listeningScore = getModuleScoreFromResult(latestResults.get(`${studentId}:Listening`), "Listening");
-    const writingScore = getModuleScoreFromResult(latestResults.get(`${studentId}:Writing`), "Writing");
-    const readingTimeSpent = getTimeSpentFromResult(latestResults.get(`${studentId}:Reading`));
-    const listeningTimeSpent = getTimeSpentFromResult(latestResults.get(`${studentId}:Listening`));
-    const writingTimeSpent = getTimeSpentFromResult(latestResults.get(`${studentId}:Writing`));
-
-    return {
-      ...student,
-      results: {
-        Reading: readingScore,
-        Listening: listeningScore,
-        Writing: writingScore,
-      },
-      readingScore,
-      listeningScore,
-      writingScore,
-      readingTimeSpent,
-      listeningTimeSpent,
-      writingTimeSpent,
-      hasReadingResult: readingScore !== null,
-      hasListeningResult: listeningScore !== null,
-      hasWritingResult: writingScore !== null
-    };
-  });
 
   return {
     id: String(slot._id),
     name: buildGroupName(slot),
     day: slot.day,
     time: slot.time,
-    studentCount: enrichedStudents.length,
-    students: enrichedStudents,
+    studentCount: students.length,
+    students,
     lessonSchedule: `${slot.day || "-"} ${slot.time || "-"}`
+  };
+};
+
+const getGroupWithHomework = async (teacherId, slot) => {
+  const group = await getGroupPayload(teacherId, slot);
+  const assignments = await Homework.find({
+    teacher: teacherId,
+    group: slot._id,
+    isDeleted: false
+  }).sort({ lessonDate: 1, createdAt: -1 }).lean();
+  const assignmentIds = assignments.map((assignment) => assignment._id);
+  const studentIds = group.students.map((student) => student.id);
+
+  const [results, writingResults] = assignmentIds.length && studentIds.length
+    ? await Promise.all([
+        Result.find({
+          homeworkId: { $in: assignmentIds },
+          userId: { $in: studentIds },
+          moduleType: { $in: ["Reading", "Listening", "Writing"] }
+        }).sort({ createdAt: -1 }).lean(),
+        WritingResult.find({
+          homeworkId: { $in: assignmentIds },
+          userId: { $in: studentIds },
+          taskType: { $in: ["task1", "task2"] }
+        }).sort({ createdAt: -1 }).lean()
+      ])
+    : [[], []];
+
+  return {
+    ...group,
+    homeworkCount: assignments.length,
+    homework: buildAssignmentResults({
+      students: group.students,
+      assignments,
+      results,
+      writingResults
+    })
   };
 };
 
@@ -191,37 +154,7 @@ router.get("/groups", auth, requireTeacher, async (req, res) => {
     const teacherId = req.userDoc?._id || req.user.id;
     const slots = await TimeSlot.find({ teacher: teacherId }).sort({ day: 1, time: 1 });
 
-    const groups = await Promise.all(slots.map((slot) => getGroupPayload(teacherId, slot)));
-
-    const payload = await Promise.all(groups.map(async (group) => {
-      const assignments = await Homework.find({
-        teacher: teacherId,
-        group: group.id,
-        isDeleted: false
-      }).sort({ lessonDate: 1, createdAt: -1 }).lean();
-
-      return {
-        ...group,
-        homeworkCount: assignments.length,
-        homework: assignments.map((item) => ({
-          id: String(item._id),
-          title: item.title,
-          instructions: item.instructions || "",
-          extraInfo: item.extraInfo || "",
-          lessonDate: item.lessonDate || "",
-          lessonTime: item.lessonTime || item.lessonDay || group.time,
-          dueDate: item.dueDate || "",
-          dueTime: item.dueTime || "",
-          readingTestId: item.readingTestId || "",
-          listeningTestId: item.listeningTestId || "",
-          writingTestId: item.writingTestId || "",
-          createdAt: item.createdAt,
-          assignedAt: item.assignedAt,
-          status: item.lessonDate ? "Vazifa berilgan" : "Vazifa berilmagan"
-        }))
-      };
-    }));
-
+    const payload = await Promise.all(slots.map((slot) => getGroupWithHomework(teacherId, slot)));
     res.json(payload);
   } catch (error) {
     console.error("Teacher groups error:", error);
@@ -238,32 +171,8 @@ router.get("/groups/:groupId", auth, requireTeacher, async (req, res) => {
       return res.status(404).json({ message: "Guruh topilmadi." });
     }
 
-    const group = await getGroupPayload(teacherId, slot);
-    const assignments = await Homework.find({
-      teacher: teacherId,
-      group: slot._id,
-      isDeleted: false
-    }).sort({ lessonDate: 1, createdAt: -1 }).lean();
-
-    res.json({
-      ...group,
-      assignments: assignments.map((item) => ({
-        id: String(item._id),
-        title: item.title,
-        instructions: item.instructions || "",
-        extraInfo: item.extraInfo || "",
-        lessonDate: item.lessonDate || "",
-        lessonTime: item.lessonTime || item.lessonDay || group.time,
-        dueDate: item.dueDate || "",
-        dueTime: item.dueTime || "",
-        readingTestId: item.readingTestId || "",
-        listeningTestId: item.listeningTestId || "",
-        writingTestId: item.writingTestId || "",
-        createdAt: item.createdAt,
-        assignedAt: item.assignedAt,
-        status: item.lessonDate ? "Vazifa berilgan" : "Vazifa berilmagan"
-      }))
-    });
+    const group = await getGroupWithHomework(teacherId, slot);
+    res.json({ ...group, assignments: group.homework });
   } catch (error) {
     console.error("Teacher group details error:", error);
     res.status(500).json({ message: "Server xatosi" });
@@ -429,16 +338,44 @@ router.put("/homework/:id", auth, requireTeacher, async (req, res) => {
       return res.status(400).json({ message: "Homework title kerak." });
     }
 
-    let selectedSections = {
-      readingTestId: readingTestId || normalized.readingTestId || homework.readingTestId || "",
-      listeningTestId: listeningTestId || normalized.listeningTestId || homework.listeningTestId || "",
-      writingTestId: writingTestId || normalized.writingTestId || homework.writingTestId || "",
-    };
+    const sectionFields = [
+      "readingTestId", "readingId", "reading", "readingAssignmentId", "readingTaskId",
+      "listeningTestId", "listeningId", "listening", "listeningAssignmentId", "listeningTaskId",
+      "writingTestId", "writingId", "writing", "writingAssignmentId", "writingTaskId",
+    ];
+    const hasSectionUpdates = sectionFields.some((field) => Object.prototype.hasOwnProperty.call(body, field)) ||
+      Boolean(body.sections || body.sectionAssignments);
+    let selectedSections = hasSectionUpdates
+      ? normalized
+      : {
+          readingTestId: homework.readingTestId || "",
+          listeningTestId: homework.listeningTestId || "",
+          writingTestId: homework.writingTestId || "",
+        };
 
     try {
       selectedSections = await validateHomeworkSections(selectedSections);
     } catch (validationError) {
       return res.status(400).json({ message: validationError.message });
+    }
+
+    const nextLessonDate = lessonDate !== undefined ? String(lessonDate) : homework.lessonDate;
+    const nextLessonTime = lessonTime !== undefined ? String(lessonTime) : homework.lessonTime;
+    if (
+      nextLessonDate !== homework.lessonDate ||
+      nextLessonTime !== homework.lessonTime
+    ) {
+      const duplicate = await Homework.findOne({
+        _id: { $ne: homework._id },
+        teacher: teacherId,
+        group: homework.group,
+        lessonDate: nextLessonDate,
+        lessonTime: nextLessonTime,
+        isDeleted: false,
+      });
+      if (duplicate) {
+        return res.status(409).json({ message: "Ushbu dars uchun homework allaqachon qo'shilgan." });
+      }
     }
 
     if (title !== undefined) homework.title = String(title).trim();
@@ -463,6 +400,9 @@ router.put("/homework/:id", auth, requireTeacher, async (req, res) => {
 
     res.json({ message: "Homework yangilandi.", homework });
   } catch (error) {
+    if (error?.code === 11000) {
+      return res.status(409).json({ message: "Ushbu dars uchun homework allaqachon mavjud." });
+    }
     console.error("Update homework error:", error);
     res.status(500).json({ message: "Server xatosi" });
   }

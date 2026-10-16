@@ -5,8 +5,10 @@ const ScoreW = require("../models/ScoreW");
 const Writing = require("../models/writing");
 const Response = require("../models/Response");
 const User = require("../models/User");
+const Homework = require("../models/Homework");
 
 const auth = require("../middleware/auth");
+const { findStudentHomeworkAssignment } = require("../utils/homeworkAttempt");
 
 
 // ===============================
@@ -14,7 +16,7 @@ const auth = require("../middleware/auth");
 // ===============================
 router.post("/response", auth, async (req, res) => {
     try {
-        const { writingId, topic, answer, task1Answer, task2Answer } = req.body;
+        const { writingId, homeworkId, topic, answer, task1Answer, task2Answer } = req.body;
         const userId = req.user.id;
         const hasCombinedAnswers =
             task1Answer !== undefined || task2Answer !== undefined;
@@ -38,6 +40,18 @@ router.post("/response", auth, async (req, res) => {
             return res.status(403).json({ message: "Faqat student javob yubora oladi!" });
         }
 
+        const homeworkAssignment = await findStudentHomeworkAssignment({
+            User,
+            Homework,
+            studentId: userId,
+            homeworkId,
+            testId: writingId,
+            moduleType: "Writing"
+        });
+        if (homeworkId && !homeworkAssignment) {
+            return res.status(403).json({ message: "Bu Writing test ushbu homework assignmentga tegishli emas." });
+        }
+
         const writing = await Writing.findById(writingId);
         if (!writing) {
             return res.status(404).json({ message: "Writing topilmadi!" });
@@ -50,6 +64,7 @@ router.post("/response", auth, async (req, res) => {
             hasCombinedAnswers
                 ? {
                     writingId,
+                    homeworkId: homeworkAssignment?._id || null,
                     task1Topic,
                     task2Topic,
                     task1Answer,
@@ -60,6 +75,7 @@ router.post("/response", auth, async (req, res) => {
                 }
                 : {
                     writingId,
+                    homeworkId: homeworkAssignment?._id || null,
                     topic: topic || task1Topic,
                     userId,
                     userName: user.name,

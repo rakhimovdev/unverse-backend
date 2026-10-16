@@ -7,6 +7,8 @@ const Listening = require("../models/Testl"); // Listening model
 const { saveListeningResult } = require("../services/resultService");
 const { scoreObjectiveTest } = require("../services/objectiveScoringService");
 const Result = require("../models/Result");
+const Homework = require("../models/Homework");
+const { findStudentHomeworkAssignment } = require("../utils/homeworkAttempt");
 
 const normalizeStudentNames = (user) => {
     const safe = (value) => (typeof value === "string" ? value.trim() : "");
@@ -27,6 +29,7 @@ router.post("/add", auth, async (req, res) => {
     try {
         const {
             listeningId,
+            homeworkId,
             attemptKey,
             mode = "solving",
             solvingAttemptId,
@@ -54,6 +57,23 @@ router.post("/add", auth, async (req, res) => {
             return res.status(400).json({ message: "Noto‘g‘ri attempt mode" });
         }
 
+        const user = await User.findById(req.user.id);
+        if (!user || !["student", "mooc"].includes(user.role)) {
+            return res.status(403).json({ message: "Faqat student score qo‘shishi mumkin!" });
+        }
+
+        const homeworkAssignment = await findStudentHomeworkAssignment({
+            User,
+            Homework,
+            studentId: req.user.id,
+            homeworkId,
+            testId: listening._id,
+            moduleType: "Listening"
+        });
+        if (homeworkId && !homeworkAssignment) {
+            return res.status(403).json({ message: "Bu Listening test ushbu homework assignmentga tegishli emas." });
+        }
+
         let parentAttempt = null;
         if (mode === "resolving") {
             if (!solvingAttemptId) {
@@ -65,16 +85,12 @@ router.post("/add", auth, async (req, res) => {
                 testId: listening._id,
                 moduleType: "Listening",
                 mode: "solving",
+                ...(homeworkId ? { homeworkId: homeworkAssignment._id } : {}),
                 completedAt: { $ne: null }
             });
             if (!parentAttempt) {
                 return res.status(403).json({ message: "Avval Solving attemptni yakunlang" });
             }
-        }
-
-        const user = await User.findById(req.user.id);
-        if (!user || !["student", "mooc"].includes(user.role)) {
-            return res.status(403).json({ message: "Faqat student score qo‘shishi mumkin!" });
         }
 
         const { studentName, studentLastname } = normalizeStudentNames(user);
@@ -104,6 +120,7 @@ router.post("/add", auth, async (req, res) => {
         await saveListeningResult({
             userId: req.user.id,
             testId: listening._id,
+            homeworkId: homeworkAssignment?._id || null,
             testName: listening.title,
             attemptKey,
             mode,
@@ -126,7 +143,8 @@ router.post("/add", auth, async (req, res) => {
         const result = await Result.findOne({
             userId: req.user.id,
             moduleType: "Listening",
-            attemptKey
+            attemptKey,
+            homeworkId: homeworkAssignment?._id || null
         }).lean();
 
         res.status(201).json({

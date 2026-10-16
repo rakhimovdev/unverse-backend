@@ -3,6 +3,7 @@ const OpenAI = require("openai");
 
 const auth = require("../middleware/auth");
 const User = require("../models/User");
+const Homework = require("../models/Homework");
 const Writing = require("../models/writing");
 const WritingResult = require("../models/WritingResult");
 const { syncWritingResult } = require("../services/resultService");
@@ -17,6 +18,7 @@ const {
     checkWritingAccess,
     consumeWritingCheck
 } = require("../utils/aiWritingLimit");
+const { findStudentHomeworkAssignment } = require("../utils/homeworkAttempt");
 
 const router = express.Router();
 
@@ -73,6 +75,7 @@ const createOverallRecord = async ({
     writingId = null,
     attemptKey = "",
     testName = "",
+    homeworkId = null,
     task1Doc,
     task2Doc
 }) => {
@@ -87,6 +90,7 @@ const createOverallRecord = async ({
     const payload = createStoredWritingResultPayload({
         userId,
         writingId,
+        homeworkId,
         attemptKey,
         testName,
         taskType: "overall",
@@ -128,6 +132,7 @@ router.post("/writing/grade", auth, async (req, res) => {
             language,
             writingId,
             attemptKey,
+            homeworkId,
             startedAt,
             completedAt,
             timeSpent
@@ -154,6 +159,20 @@ router.post("/writing/grade", auth, async (req, res) => {
         if (!user) {
             return res.status(404).json({
                 message: "User topilmadi"
+            });
+        }
+
+        const homeworkAssignment = await findStudentHomeworkAssignment({
+            User,
+            Homework,
+            studentId: req.user.id,
+            homeworkId,
+            testId: writingId,
+            moduleType: "Writing"
+        });
+        if (homeworkId && !homeworkAssignment) {
+            return res.status(403).json({
+                message: "Bu Writing test ushbu homework assignmentga tegishli emas."
             });
         }
 
@@ -209,6 +228,7 @@ router.post("/writing/grade", auth, async (req, res) => {
         const storedPayload = createStoredWritingResultPayload({
             userId: req.user.id,
             writingId: writingId || null,
+            homeworkId: homeworkAssignment?._id || null,
             attemptKey,
             testName,
             taskType: task,
@@ -248,6 +268,7 @@ router.post("/writing/grade", auth, async (req, res) => {
             overall = await createOverallRecord({
                 userId: req.user.id,
                 writingId: writingId || null,
+                homeworkId: homeworkAssignment?._id || null,
                 attemptKey,
                 testName,
                 task1Doc,
@@ -257,6 +278,7 @@ router.post("/writing/grade", auth, async (req, res) => {
             await syncWritingResult({
                 userId: req.user.id,
                 testId: writingId || null,
+                homeworkId: homeworkAssignment?._id || null,
                 testName,
                 attemptKey,
                 startedAt,

@@ -43,6 +43,12 @@ const WritingResultSchema = new mongoose.Schema(
             ref: "Writing",
             default: null
         },
+        homeworkId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Homework",
+            default: null,
+            index: true
+        },
         attemptKey: {
             type: String,
             default: "",

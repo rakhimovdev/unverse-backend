@@ -101,7 +101,8 @@ const upsertResult = async ({ userId, moduleType, attemptKey, payload }) => {
         {
             userId,
             moduleType,
-            attemptKey: cleanAttemptKey
+            attemptKey: cleanAttemptKey,
+            ...(payload.homeworkId ? { homeworkId: payload.homeworkId } : {})
         },
         { $set: payload },
         {
@@ -115,6 +116,7 @@ const upsertResult = async ({ userId, moduleType, attemptKey, payload }) => {
 const saveReadingResult = async ({
     userId,
     testId = null,
+    homeworkId = null,
     testName = "",
     attemptKey = "",
     reading = {},
@@ -135,6 +137,7 @@ const saveReadingResult = async ({
         completedAt,
         timeSpent: toFiniteNumber(timeSpent, 0) || 0,
         testId,
+        homeworkId,
         testName: normalizeText(testName) || "Reading Test",
         moduleType: "Reading",
         reading: {
@@ -162,7 +165,8 @@ const saveReadingResult = async ({
         const existing = await Result.findOne({
             userId,
             moduleType: "Reading",
-            attemptKey: payload.attemptKey
+            attemptKey: payload.attemptKey,
+            ...(payload.homeworkId ? { homeworkId: payload.homeworkId } : {})
         });
         if (existing) return existing;
     }
@@ -173,6 +177,7 @@ const saveReadingResult = async ({
 const saveListeningResult = async ({
     userId,
     testId = null,
+    homeworkId = null,
     testName = "",
     attemptKey = "",
     listening = {},
@@ -193,6 +198,7 @@ const saveListeningResult = async ({
         completedAt,
         timeSpent: toFiniteNumber(timeSpent, 0) || 0,
         testId,
+        homeworkId,
         testName: normalizeText(testName) || "Listening Test",
         moduleType: "Listening",
         reading: {},
@@ -220,7 +226,8 @@ const saveListeningResult = async ({
         const existing = await Result.findOne({
             userId,
             moduleType: "Listening",
-            attemptKey: payload.attemptKey
+            attemptKey: payload.attemptKey,
+            ...(payload.homeworkId ? { homeworkId: payload.homeworkId } : {})
         });
         if (existing) return existing;
     }
@@ -260,6 +267,7 @@ const buildWritingSummary = (task1, task2) => {
 const syncWritingResult = async ({
     userId,
     testId = null,
+    homeworkId = null,
     testName = "",
     attemptKey = "",
     startedAt = null,
@@ -271,6 +279,7 @@ const syncWritingResult = async ({
 
     if (cleanAttemptKey) {
         filter.attemptKey = cleanAttemptKey;
+        if (homeworkId) filter.homeworkId = homeworkId;
     } else if (testId) {
         filter.writingId = testId;
     } else {
@@ -306,6 +315,7 @@ const syncWritingResult = async ({
         userId,
         attemptKey: cleanAttemptKey,
         testId,
+        homeworkId,
         testName: normalizeText(testName) || "Writing Test",
         moduleType: "Writing",
         startedAt,

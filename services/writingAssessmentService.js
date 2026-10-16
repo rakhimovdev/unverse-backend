@@ -946,6 +946,7 @@ const normalizeStoredWritingResult = (doc) => {
 const createStoredWritingResultPayload = ({
     userId,
     writingId = null,
+    homeworkId = null,
     attemptKey = "",
     testName = "",
     taskType,
@@ -955,6 +956,7 @@ const createStoredWritingResultPayload = ({
 }) => ({
     userId,
     writingId,
+    homeworkId,
     attemptKey: normalizeText(attemptKey),
     testName: normalizeText(testName) || "Writing Test",
     taskType,

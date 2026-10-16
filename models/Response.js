@@ -7,6 +7,12 @@ const ResponseSchema = new mongoose.Schema(
             ref: "Writing",
             required: true
         },
+        homeworkId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Homework",
+            default: null,
+            index: true
+        },
         task1Topic: String,
         task2Topic: String,
         // legacy fields
