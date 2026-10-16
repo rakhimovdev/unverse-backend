@@ -140,7 +140,7 @@ const saveReadingResult = async ({
         reading: {
             passageScores: normalizeBreakdown(reading.passageScores, "Passage"),
             rawScore: toFiniteNumber(reading.rawScore, 0) || 0,
-            rawTotal: toFiniteNumber(reading.rawTotal, 40) || 40,
+            rawTotal: toFiniteNumber(reading.rawTotal, 40),
             academicBand: toFiniteNumber(reading.academicBand, null),
             generalBand: toFiniteNumber(reading.generalBand, null),
             correctAnswers: (reading.correctAnswers || []).map((item, index) =>
@@ -199,7 +199,7 @@ const saveListeningResult = async ({
         listening: {
             sectionScores: normalizeBreakdown(listening.sectionScores, "Section"),
             rawScore: toFiniteNumber(listening.rawScore, 0) || 0,
-            rawTotal: toFiniteNumber(listening.rawTotal, 40) || 40,
+            rawTotal: toFiniteNumber(listening.rawTotal, 40),
             academicBand: toFiniteNumber(listening.academicBand, null),
             generalBand: toFiniteNumber(listening.generalBand, null),
             correctAnswers: (listening.correctAnswers || []).map((item, index) =>
@@ -261,7 +261,10 @@ const syncWritingResult = async ({
     userId,
     testId = null,
     testName = "",
-    attemptKey = ""
+    attemptKey = "",
+    startedAt = null,
+    completedAt = null,
+    timeSpent = 0
 }) => {
     const cleanAttemptKey = normalizeText(attemptKey);
     const filter = { userId };
@@ -305,6 +308,9 @@ const syncWritingResult = async ({
         testId,
         testName: normalizeText(testName) || "Writing Test",
         moduleType: "Writing",
+        startedAt,
+        completedAt,
+        timeSpent: toFiniteNumber(timeSpent, 0) || 0,
         reading: {},
         listening: {},
         writing: {

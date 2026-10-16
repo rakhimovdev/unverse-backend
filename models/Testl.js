@@ -4,6 +4,9 @@ const QuestionSchema = new mongoose.Schema(
   {
     question: { type: String, trim: true },
     value: { type: String, trim: true },
+    answer: { type: [String], default: [] },
+    acceptedAnswers: { type: [String], default: [] },
+    answers: { type: [String], default: [] },
     type: { type: String, enum: ["text", "select", "yn", "multi"], default: "text" },
     options: { type: [String], default: [] },
     top: { type: Number, default: 0 },

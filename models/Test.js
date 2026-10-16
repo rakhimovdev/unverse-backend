@@ -24,6 +24,10 @@ const QuestionSchema = new mongoose.Schema({
         type: [String],
         default: []
     },
+    acceptedAnswers: {
+        type: [String],
+        default: []
+    },
 
     type: {
         type: String,

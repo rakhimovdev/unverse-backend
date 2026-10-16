@@ -121,7 +121,17 @@ router.post("/writing/grade", auth, async (req, res) => {
             });
         }
 
-        const { essay, task, prompt, language, writingId, attemptKey } = req.body || {};
+        const {
+            essay,
+            task,
+            prompt,
+            language,
+            writingId,
+            attemptKey,
+            startedAt,
+            completedAt,
+            timeSpent
+        } = req.body || {};
         const cleanEssay = normalizeText(essay);
 
         if (!cleanEssay) {
@@ -248,7 +258,10 @@ router.post("/writing/grade", auth, async (req, res) => {
                 userId: req.user.id,
                 testId: writingId || null,
                 testName,
-                attemptKey
+                attemptKey,
+                startedAt,
+                completedAt,
+                timeSpent
             });
         }
 

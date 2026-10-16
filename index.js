@@ -19,6 +19,7 @@ const AiWriting = require("./routes/AiWriting");
 const WritingAi = require("./routes/WritingAi");
 const AuthRouter = require("./routes/Auth");
 const Results = require("./routes/Results");
+const Teacher = require("./routes/Teacher");
 const PORT = process.env.PORT || 5000;
 
 const configuredOrigins = String(process.env.FRONTEND_URLS || "")
@@ -170,4 +171,5 @@ app.use("/admin", Admin);
 app.use("/ai", AiWriting);
 app.use("/api/writing", WritingAi);
 app.use("/results", Results);
+app.use("/teacher", Teacher);
 app.use('/api/click', clickRoutes)

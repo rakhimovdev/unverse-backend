@@ -6,6 +6,7 @@ const Test = require('../models/Testl');
 const Score = require('../models/Score');
 const authMiddleware = require("../middleware/auth");
 const { registerUser, loginUser } = require("../services/authService");
+const { serializeHomeworkForStudent } = require("../utils/homeworkSections");
 
 // =====================
 // Student: Teacher list (public)
@@ -182,6 +183,63 @@ router.get('/results', authMiddleware, async (req, res) => {
     } catch (err) {
         console.error("Result olishda xato:", err);
         res.status(500).json({ error: "Server xatosi" });
+    }
+});
+
+router.get('/homework', authMiddleware, async (req, res) => {
+    try {
+        if (!['student', 'mooc'].includes(req.user.role)) {
+            return res.status(403).json({ message: "🚫 Ruxsat yo'q!" });
+        }
+
+        const user = await User.findById(req.user.id).select('teacher timeSlot timeSlots');
+        if (!user) {
+            return res.status(404).json({ message: 'Student topilmadi' });
+        }
+
+        const allowedGroups = new Set([user.timeSlot, ...(user.timeSlots || [])].filter(Boolean).map((value) => String(value)));
+        const HomeworkModel = require('../models/Homework');
+        const homework = await HomeworkModel.find({
+            isDeleted: false,
+            group: { $in: Array.from(allowedGroups) },
+            teacher: user.teacher || { $ne: null }
+        }).sort({ lessonDate: -1, createdAt: -1 }).lean();
+
+        res.json(homework.map((item) => serializeHomeworkForStudent(item)));
+    } catch (error) {
+        console.error('Student homework fetch error:', error);
+        res.status(500).json({ message: 'Server xatosi' });
+    }
+});
+
+router.get('/homework/:id', authMiddleware, async (req, res) => {
+    try {
+        if (!['student', 'mooc'].includes(req.user.role)) {
+            return res.status(403).json({ message: "🚫 Ruxsat yo'q!" });
+        }
+
+        const user = await User.findById(req.user.id).select('teacher timeSlot timeSlots');
+        if (!user) {
+            return res.status(404).json({ message: 'Student topilmadi' });
+        }
+
+        const allowedGroups = new Set([user.timeSlot, ...(user.timeSlots || [])].filter(Boolean).map((value) => String(value)));
+        const HomeworkModel = require('../models/Homework');
+        const homework = await HomeworkModel.findOne({
+            _id: req.params.id,
+            isDeleted: false,
+            group: { $in: Array.from(allowedGroups) },
+            teacher: user.teacher || { $ne: null }
+        }).lean();
+
+        if (!homework) {
+            return res.status(404).json({ message: 'Homework topilmadi' });
+        }
+
+        res.json(serializeHomeworkForStudent(homework));
+    } catch (error) {
+        console.error('Student homework detail error:', error);
+        res.status(500).json({ message: 'Server xatosi' });
     }
 });
 

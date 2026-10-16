@@ -56,8 +56,14 @@ router.post("/upload", auth, requireRoles("teacher", "admin"), async (req, res) 
                     mode === "part" && i !== 0 ? "" : cleanHTML,
                 testText: p.testText || "",
                 questions: Array.isArray(p.questions)
-                    ? p.questions.map(q => ({
-                        value: (q.value || "").trim(),
+                    ? p.questions.map((q) => ({
+                        question: q.question || "",
+                        value: q.value == null ? "" : String(q.value).trim(),
+                        answer: Array.isArray(q.answer) ? q.answer : [],
+                        acceptedAnswers: Array.isArray(q.acceptedAnswers)
+                            ? q.acceptedAnswers
+                            : [],
+                        options: Array.isArray(q.options) ? q.options : [],
                         type: q.type || "text"
                     }))
                     : []

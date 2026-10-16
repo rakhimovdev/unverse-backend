@@ -6,37 +6,36 @@ const auth = require("../middleware/auth");
 const Test = require("../models/Test");
 const { serializeUser } = require("../utils/userSerializer");
 const { saveReadingResult } = require("../services/resultService");
+const { scoreObjectiveTest } = require("../services/objectiveScoringService");
 const Result = require("../models/Result");
-const {
-    READING_ACADEMIC_TABLE,
-    READING_GENERAL_TABLE,
-    getBandScore
-} = require("../utils/ieltsBands");
 
 // Score qo‘shish yoki yangilash
 router.post("/add", auth, async (req, res) => {
     try {
         const {
             testId,
-            score,
             attemptKey,
             mode = "solving",
             solvingAttemptId,
             startedAt,
             completedAt,
             timeSpent,
-            answers,
-            readingDetails
+            answers
         } = req.body;
 
-        if (!testId || score === undefined) {
-            return res.status(400).json({ message: "testId va score kerak!" });
+        if (!testId) {
+            return res.status(400).json({ message: "testId kerak!" });
         }
 
         const test = await Test.findById(testId);
         if (!test) {
             return res.status(404).json({ message: "Test topilmadi!" });
         }
+        const graded = scoreObjectiveTest({
+            test,
+            answers,
+            moduleType: "Reading"
+        });
 
         if (!["solving", "resolving"].includes(mode)) {
             return res.status(400).json({ message: "Noto‘g‘ri attempt mode" });
@@ -70,13 +69,13 @@ router.post("/add", auth, async (req, res) => {
         let existing = await Score.findOne({ student: req.user.id, test: testId });
         const wasExisting = Boolean(existing);
         if (existing) {
-            existing.score = score;
+            existing.score = graded.totalCorrect;
             await existing.save();
         } else {
             const newScore = new Score({
                 student: req.user.id,
                 test: test._id,
-                score,
+                score: graded.totalCorrect,
                 studentName: user.name,
                 studentLastname: user.lastname,
                 studentEmail: user.email,
@@ -86,15 +85,6 @@ router.post("/add", auth, async (req, res) => {
             await newScore.save();
             existing = newScore;
         }
-
-        const maybeAcademicBand = Number(readingDetails?.academicBand);
-        const maybeGeneralBand = Number(readingDetails?.generalBand);
-        const academicBand = Number.isFinite(maybeAcademicBand)
-            ? maybeAcademicBand
-            : getBandScore(score, READING_ACADEMIC_TABLE);
-        const generalBand = Number.isFinite(maybeGeneralBand)
-            ? maybeGeneralBand
-            : getBandScore(score, READING_GENERAL_TABLE);
 
         await saveReadingResult({
             userId: req.user.id,
@@ -108,13 +98,13 @@ router.post("/add", auth, async (req, res) => {
             completedAt,
             timeSpent,
             reading: {
-                passageScores: readingDetails?.passageScores || [],
-                rawScore: Number(readingDetails?.rawScore ?? score) || 0,
-                rawTotal: Number(readingDetails?.rawTotal) || 40,
-                academicBand,
-                generalBand,
-                correctAnswers: readingDetails?.correctAnswers || [],
-                wrongAnswers: readingDetails?.wrongAnswers || []
+                passageScores: graded.groupScores,
+                rawScore: graded.totalCorrect,
+                rawTotal: graded.totalQuestions,
+                academicBand: graded.academicBand,
+                generalBand: graded.generalBand,
+                correctAnswers: graded.correctAnswers,
+                wrongAnswers: graded.wrongAnswers
             }
         });
 
