@@ -412,10 +412,15 @@ const loginWithGoogle = async ({ credential }) => {
         throw createAuthError(400, "Google credential is required.");
     }
 
-    const ticket = await googleClient.verifyIdToken({
-        idToken: credential,
-        audience: GOOGLE_CLIENT_ID
-    });
+    let ticket;
+    try {
+        ticket = await googleClient.verifyIdToken({
+            idToken: credential,
+            audience: GOOGLE_CLIENT_ID
+        });
+    } catch {
+        throw createAuthError(401, "Unable to verify Google account.");
+    }
 
     const payload = ticket.getPayload();
 
@@ -427,9 +432,15 @@ const loginWithGoogle = async ({ credential }) => {
     const fullname = payload.name || email.split("@")[0];
     const { name, lastname } = splitFullname(fullname);
 
-    let user = await User.findOne({
-        $or: [{ googleId: payload.sub }, { email }]
-    }).select("+password +otpCode +otpExpires +otpLastSentAt");
+    let user = await User.findOne({ googleId: payload.sub }).select(
+        "+password +otpCode +otpExpires +otpLastSentAt"
+    );
+
+    if (!user) {
+        user = await User.findOne({ email }).select(
+            "+password +otpCode +otpExpires +otpLastSentAt"
+        );
+    }
 
     ensureNotStaffAccount(user);
 
@@ -464,7 +475,27 @@ const loginWithGoogle = async ({ credential }) => {
     user.otpCode = "";
     user.otpExpires = null;
     user.otpLastSentAt = null;
-    await user.save();
+    try {
+        await user.save();
+    } catch (error) {
+        if (error?.code !== 11000 || !error.keyPattern?.googleId) {
+            throw error;
+        }
+
+        const existingGoogleUser = await User.findOne({
+            googleId: payload.sub
+        }).select("+password +otpCode +otpExpires +otpLastSentAt");
+
+        if (!existingGoogleUser) {
+            throw createAuthError(
+                409,
+                "This Google account is already linked to another user."
+            );
+        }
+
+        ensureNotStaffAccount(existingGoogleUser);
+        user = existingGoogleUser;
+    }
 
     return {
         message: "Google login successful.",
